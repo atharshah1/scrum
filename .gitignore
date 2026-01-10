@@ -1,0 +1,15 @@
+# binaries
+dist/
+scrum
+scrum.exe
+
+# environment
+.env
+
+# editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
