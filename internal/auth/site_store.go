@@ -34,3 +34,11 @@ func LoadSite() (string, error) {
     }
     return string(b), nil
 }
+
+func DeleteSite() error {
+    f, err := siteFile()
+    if err != nil {
+        return err
+    }
+    return os.Remove(f)
+}

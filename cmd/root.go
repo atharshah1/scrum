@@ -11,8 +11,19 @@ import (
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "scrum",
-	Short: "Scrum CLI for Jira",
+	Short: "A CLI tool for managing Jira Scrum projects",
+	Long: `Scrum CLI is a terminal-based tool for interacting with Jira.
+It allows you to manage projects, issues, comments, and transitions
+without leaving your command line interface.
 
+Start by logging in:
+  scrum auth login
+
+Then switch to a project:
+  scrum project switch`,
+	CompletionOptions: cobra.CompletionOptions{
+		DisableDefaultCmd: true,
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -35,5 +46,3 @@ func init() {
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
-
-

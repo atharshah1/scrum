@@ -9,7 +9,7 @@ const (
     AuthURL      = "https://auth.atlassian.com/authorize"
     TokenURL     = "https://auth.atlassian.com/oauth/token"
     RedirectURI  = "http://localhost:8085/callback"
-    Scopes       = "read:jira-work offline_access"
+    Scopes       = "read:jira-work write:jira-work manage:jira-project manage:jira-configuration read:jira-user offline_access"
 )
 
 func ClientID() (string, error) {
@@ -27,4 +27,3 @@ func ClientSecret() (string, error) {
     }
     return v, nil
 }
-

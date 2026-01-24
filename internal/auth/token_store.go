@@ -14,3 +14,7 @@ func SaveRefreshToken(token string) error {
 func LoadRefreshToken() (string, error) {
     return keyring.Get(keyringService, tokenKey)
 }
+
+func DeleteRefreshToken() error {
+    return keyring.Delete(keyringService, tokenKey)
+}
