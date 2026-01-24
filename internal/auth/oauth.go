@@ -12,7 +12,15 @@ const (
     Scopes       = "read:jira-work write:jira-work manage:jira-project manage:jira-configuration read:jira-user offline_access"
 )
 
+var (
+	embeddedClientID     string
+	embeddedClientSecret string
+)
+
 func ClientID() (string, error) {
+	if embeddedClientID != "" {
+		return embeddedClientID, nil
+	}
     v := os.Getenv("SCRUM_JIRA_CLIENT_ID")
     if v == "" {
         return "", errors.New("SCRUM_JIRA_CLIENT_ID not set")
@@ -21,6 +29,9 @@ func ClientID() (string, error) {
 }
 
 func ClientSecret() (string, error) {
+	if embeddedClientSecret != "" {
+		return embeddedClientSecret, nil
+	}
     v := os.Getenv("SCRUM_JIRA_CLIENT_SECRET")
     if v == "" {
         return "", errors.New("SCRUM_JIRA_CLIENT_SECRET not set")
