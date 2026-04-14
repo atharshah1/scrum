@@ -35,10 +35,10 @@ func main() {
 	}
 	defer database.Close()
 
-	localBus := events.NewBus(log, events.NewInternalBus(), nil)
+	workerBus := events.NewBus(log, events.NewInternalBus(), nil)
 	authzService := authz.NewService(database)
-	issueService := issues.NewService(issues.NewRepository(database), localBus, authzService, cache.NewTTLCache(30*time.Second))
-	webhookDispatcher := webhooks.NewDispatcher(log, localBus, cfg.WebhookTimeout, database)
+	issueService := issues.NewService(issues.NewRepository(database), workerBus, authzService, cache.NewTTLCache(30*time.Second))
+	webhookDispatcher := webhooks.NewDispatcher(log, workerBus, cfg.WebhookTimeout, database)
 	automationStore := automation.NewStore(database)
 	automationEngine := automation.NewEngine(log, automationStore, webhookDispatcher, cfg.AutomationWorkers, issueService, cfg.AutomationMaxRetries, cfg.AutomationBackoff)
 

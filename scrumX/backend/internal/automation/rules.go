@@ -138,23 +138,30 @@ func (s *Store) PersistDeadLetter(ctx context.Context, orgID, ruleID uuid.UUID, 
 		orgID, ruleID, eventRaw, action.Type, paramsRaw, errMsg, attempts)
 }
 
-func actionFingerprint(action Action) string {
-	raw, _ := json.Marshal(map[string]any{
+func actionFingerprint(action Action) (string, error) {
+	raw, err := json.Marshal(map[string]any{
 		"type":   action.Type,
 		"params": action.Params,
 	})
+	if err != nil {
+		return "", err
+	}
 	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // TryStartActionExecution creates a durable idempotency row for an action execution.
 // Returns true only for the first processor that acquires this event/rule/action tuple.
 func (s *Store) TryStartActionExecution(ctx context.Context, orgID, ruleID, eventID uuid.UUID, action Action) (bool, error) {
+	fingerprint, err := actionFingerprint(action)
+	if err != nil {
+		return false, err
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO automation_action_executions
 		(org_id, rule_id, event_id, action_fingerprint, status, attempts)
 		VALUES ($1,$2,$3,$4,'processing',0)
 		ON CONFLICT (org_id, rule_id, event_id, action_fingerprint) DO NOTHING`,
-		orgID, ruleID, eventID, actionFingerprint(action))
+		orgID, ruleID, eventID, fingerprint)
 	if err != nil {
 		return false, err
 	}
@@ -167,6 +174,10 @@ func (s *Store) TryStartActionExecution(ctx context.Context, orgID, ruleID, even
 
 // RecordActionAttempt increments durable attempt metadata and updates terminal status.
 func (s *Store) RecordActionAttempt(ctx context.Context, orgID, ruleID, eventID uuid.UUID, action Action, errMsg string, terminal bool) {
+	fingerprint, err := actionFingerprint(action)
+	if err != nil {
+		return
+	}
 	status := "processing"
 	lastError := any(nil)
 	if errMsg != "" {
@@ -180,7 +191,7 @@ func (s *Store) RecordActionAttempt(ctx context.Context, orgID, ruleID, eventID 
 	_, _ = s.db.ExecContext(ctx, `UPDATE automation_action_executions
 		SET attempts = attempts + 1, status = $5, last_error = $6, updated_at = NOW()
 		WHERE org_id=$1 AND rule_id=$2 AND event_id=$3 AND action_fingerprint=$4`,
-		orgID, ruleID, eventID, actionFingerprint(action), status, lastError)
+		orgID, ruleID, eventID, fingerprint, status, lastError)
 }
 
 func decodeRuleField(field string, ruleID uuid.UUID, raw []byte, target any) error {

@@ -28,10 +28,13 @@ type KafkaEventPublisher struct {
 	topic  string
 }
 
-func NewKafkaEventPublisher(brokers, topic string) *KafkaEventPublisher {
+func NewKafkaEventPublisher(brokers, topic string, batchTimeout time.Duration) *KafkaEventPublisher {
 	parsed := splitBrokers(brokers)
 	if len(parsed) == 0 || strings.TrimSpace(topic) == "" {
 		return nil
+	}
+	if batchTimeout <= 0 {
+		batchTimeout = 20 * time.Millisecond
 	}
 	return &KafkaEventPublisher{
 		writer: &kafka.Writer{
@@ -39,7 +42,7 @@ func NewKafkaEventPublisher(brokers, topic string) *KafkaEventPublisher {
 			Topic:        topic,
 			Balancer:     &kafka.LeastBytes{},
 			RequiredAcks: kafka.RequireOne,
-			BatchTimeout: 20 * time.Millisecond,
+			BatchTimeout: batchTimeout,
 		},
 		topic: topic,
 	}

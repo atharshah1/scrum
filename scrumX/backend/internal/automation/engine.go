@@ -91,8 +91,13 @@ func (e *Engine) execute(ctx context.Context, event events.Event) {
 		for _, action := range rule.Actions {
 			acquired, err := e.store.TryStartActionExecution(ctx, event.OrgID, rule.ID, event.ID, action)
 			if err != nil {
-				status = "failed"
 				e.log.Warn("automation_dedup_persist_failed", "error", err, "rule_id", rule.ID, "event_id", event.ID)
+				// Fail-open: execute action even if durable dedup metadata is unavailable,
+				// to avoid dropping automation work on transient store errors.
+				if err := e.executeActionWithRetry(ctx, rule.ID, action, event); err != nil {
+					status = "failed"
+					e.log.Warn("automation_action_failed", "error", err, "type", action.Type)
+				}
 				continue
 			}
 			if !acquired {
@@ -153,7 +158,7 @@ func (e *Engine) executeActionWithRetry(ctx context.Context, ruleID uuid.UUID, a
 		if attempt == e.maxRetries {
 			break
 		}
-		timer := time.NewTimer(time.Duration(attempt+1) * e.backoff)
+		timer := time.NewTimer(time.Duration(1<<attempt) * e.backoff)
 		select {
 		case <-ctx.Done():
 			if !timer.Stop() {

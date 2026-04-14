@@ -49,7 +49,7 @@ func main() {
 	internalBus := events.NewInternalBus()
 	var kafkaPublisher *events.KafkaEventPublisher
 	if cfg.KafkaEnabled {
-		kafkaPublisher = events.NewKafkaEventPublisher(cfg.KafkaBrokers, cfg.AutomationKafkaTopic)
+		kafkaPublisher = events.NewKafkaEventPublisher(cfg.KafkaBrokers, cfg.AutomationKafkaTopic, cfg.KafkaBatchTimeout)
 		if kafkaPublisher == nil {
 			log.Warn("kafka_enabled_but_not_configured", "brokers", cfg.KafkaBrokers, "topic", cfg.AutomationKafkaTopic)
 		}

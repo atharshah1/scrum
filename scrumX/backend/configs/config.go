@@ -17,6 +17,7 @@ type Config struct {
 	KafkaBrokers         string
 	AutomationKafkaTopic string
 	AutomationKafkaGroup string
+	KafkaBatchTimeout    time.Duration
 	AutomationWorkers    int
 	AutomationMaxRetries int
 	AutomationBackoff    time.Duration
@@ -36,6 +37,7 @@ func Load() Config {
 		KafkaBrokers:         getEnv("KAFKA_BROKERS", "kafka:9092"),
 		AutomationKafkaTopic: getEnv("AUTOMATION_KAFKA_TOPIC", "automation.events"),
 		AutomationKafkaGroup: getEnv("AUTOMATION_KAFKA_GROUP", "automation-workers"),
+		KafkaBatchTimeout:    time.Duration(getEnvInt("KAFKA_BATCH_TIMEOUT_MS", 20)) * time.Millisecond,
 		AutomationWorkers:    getEnvInt("AUTOMATION_WORKERS", 2),
 		AutomationMaxRetries: getEnvInt("AUTOMATION_MAX_RETRIES", 2),
 		AutomationBackoff:    time.Duration(getEnvInt("AUTOMATION_BACKOFF_MS", 200)) * time.Millisecond,
