@@ -89,6 +89,12 @@ const (
 	IssueTypeBug   = "bug"
 )
 
+var DefaultWorkflowTransitions = map[string][]string{
+	"todo":        {"in_progress", "done"},
+	"in_progress": {"todo", "done"},
+	"done":        {"todo"},
+}
+
 func ValidIssueType(v string) bool {
 	switch v {
 	case IssueTypeEpic, IssueTypeStory, IssueTypeTask, IssueTypeBug:

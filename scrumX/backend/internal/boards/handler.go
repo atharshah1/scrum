@@ -15,7 +15,21 @@ type Handler struct {
 	db *sql.DB
 }
 
+var defaultBoardColumns = []boardColumn{
+	{Name: "To Do", Statuses: []string{"todo"}, Position: 1},
+	{Name: "In Progress", Statuses: []string{"in_progress"}, Position: 2},
+	{Name: "Done", Statuses: []string{"done"}, Position: 3},
+}
+
 func NewHandler(db *sql.DB) *Handler { return &Handler{db: db} }
+
+type boardColumn struct {
+	ID       uuid.UUID   `json:"id"`
+	Name     string      `json:"name"`
+	Statuses []string    `json:"statuses"`
+	Position int         `json:"position"`
+	Issues   []fiber.Map `json:"issues"`
+}
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
 	api.Get("/boards/:id", h.getBoard)
@@ -36,13 +50,6 @@ func (h *Handler) getBoard(c *fiber.Ctx) error {
 		return utils.JSONError(c, fiber.StatusNotFound, "board not found")
 	}
 
-	type boardColumn struct {
-		ID       uuid.UUID   `json:"id"`
-		Name     string      `json:"name"`
-		Statuses []string    `json:"statuses"`
-		Position int         `json:"position"`
-		Issues   []fiber.Map `json:"issues"`
-	}
 	columns := []boardColumn{}
 	rows, err := h.db.QueryContext(c.Context(), `SELECT id, name, statuses, position FROM board_columns WHERE org_id=$1 AND board_id=$2 ORDER BY position ASC`, orgID, boardID)
 	if err != nil {
@@ -59,11 +66,7 @@ func (h *Handler) getBoard(c *fiber.Ctx) error {
 		columns = append(columns, col)
 	}
 	if len(columns) == 0 {
-		columns = []boardColumn{
-			{Name: "To Do", Statuses: []string{"todo"}, Position: 1},
-			{Name: "In Progress", Statuses: []string{"in_progress"}, Position: 2},
-			{Name: "Done", Statuses: []string{"done"}, Position: 3},
-		}
+		columns = append(columns, defaultBoardColumns...)
 	}
 
 	issueRows, err := h.db.QueryContext(c.Context(), `SELECT id, title, status, priority, assignee_id, sprint_id FROM issues WHERE org_id=$1 AND project_id=$2 ORDER BY updated_at DESC`, orgID, projectID)
@@ -90,7 +93,9 @@ func (h *Handler) getBoard(c *fiber.Ctx) error {
 	}
 	for i := range columns {
 		for _, st := range columns[i].Statuses {
-			columns[i].Issues = append(columns[i].Issues, issuesByStatus[strings.TrimSpace(st)]...)
+			if statusIssues, exists := issuesByStatus[strings.TrimSpace(st)]; exists {
+				columns[i].Issues = append(columns[i].Issues, statusIssues...)
+			}
 		}
 	}
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{
@@ -128,7 +133,14 @@ func (h *Handler) upsertColumns(c *fiber.Ctx) error {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	for _, col := range payload.Columns {
-		raw, _ := json.Marshal(col.Statuses)
+		normalizedStatuses := make([]string, 0, len(col.Statuses))
+		for _, status := range col.Statuses {
+			status = strings.ToLower(strings.TrimSpace(status))
+			if status != "" {
+				normalizedStatuses = append(normalizedStatuses, status)
+			}
+		}
+		raw, _ := json.Marshal(normalizedStatuses)
 		if _, err := tx.ExecContext(c.Context(), `INSERT INTO board_columns (id, org_id, board_id, name, statuses, position) VALUES ($1,$2,$3,$4,$5,$6)`,
 			uuid.New(), orgID, boardID, col.Name, raw, col.Position); err != nil {
 			return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())

@@ -1,6 +1,8 @@
 package issues
 
 import (
+	"net/url"
+
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/utils"
 	"github.com/gofiber/fiber/v2"
@@ -292,7 +294,11 @@ func (h *Handler) removeLabel(c *fiber.Ctx) error {
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid id")
 	}
-	if err := h.service.RemoveLabel(c.Context(), orgID, actorID, issueID, c.Params("label")); err != nil {
+	label, decodeErr := url.QueryUnescape(c.Params("label"))
+	if decodeErr != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, "invalid label encoding")
+	}
+	if err := h.service.RemoveLabel(c.Context(), orgID, actorID, issueID, label); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
 	return c.SendStatus(fiber.StatusNoContent)

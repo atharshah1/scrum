@@ -16,6 +16,8 @@ type Handler struct {
 	bus events.Publisher
 }
 
+var terminalIssueStatuses = []string{"done", "closed", "resolved"}
+
 func NewHandler(db *sql.DB, bus events.Publisher) *Handler { return &Handler{db: db, bus: bus} }
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
@@ -33,10 +35,10 @@ func (h *Handler) create(c *fiber.Ctx) error {
 	}
 	actorID, _ := middleware.MustUserID(c)
 	var payload struct {
-		BoardID uuid.UUID `json:"board_id"`
-		Name    string    `json:"name"`
-		StartAt time.Time `json:"start_at"`
-		EndAt   time.Time `json:"end_at"`
+		BoardID uuid.UUID  `json:"board_id"`
+		Name    string     `json:"name"`
+		StartAt *time.Time `json:"start_at"`
+		EndAt   *time.Time `json:"end_at"`
 	}
 	if err := c.BodyParser(&payload); err != nil || payload.BoardID == uuid.Nil || payload.Name == "" {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
@@ -62,7 +64,16 @@ func (h *Handler) start(c *fiber.Ctx) error {
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid sprint id")
 	}
-	result, err := h.db.ExecContext(c.Context(), `UPDATE sprints SET status='active', start_at=COALESCE(start_at, NOW()) WHERE id=$1 AND org_id=$2 AND status IN ('planned')`, sprintID, orgID)
+	result, err := h.db.ExecContext(c.Context(), `UPDATE sprints
+SET status='active', start_at=COALESCE(start_at, NOW())
+WHERE id=$1 AND org_id=$2 AND status IN ('planned')
+AND NOT EXISTS (
+	SELECT 1 FROM sprints active
+	WHERE active.org_id=$2
+	  AND active.board_id = (SELECT board_id FROM sprints target WHERE target.id=$1 AND target.org_id=$2)
+	  AND active.status='active'
+	  AND active.id <> $1
+)`, sprintID, orgID)
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -97,16 +108,18 @@ func (h *Handler) end(c *fiber.Ctx) error {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	var nextSprintID uuid.UUID
-	err = tx.QueryRowContext(c.Context(), `SELECT id FROM sprints WHERE org_id=$1 AND board_id=$2 AND status='planned' ORDER BY COALESCE(start_at, NOW()) ASC LIMIT 1`, orgID, boardID).Scan(&nextSprintID)
+	nextSprintID := uuid.Nil
+	err = tx.QueryRowContext(c.Context(), `SELECT id FROM sprints WHERE org_id=$1 AND board_id=$2 AND status='planned' ORDER BY COALESCE(start_at, end_at, NOW()) ASC, id ASC LIMIT 1`, orgID, boardID).Scan(&nextSprintID)
 	if err == nil {
-		if _, err := tx.ExecContext(c.Context(), `UPDATE issues SET sprint_id=$1, updated_at=NOW() WHERE org_id=$2 AND sprint_id=$3 AND status <> 'done'`, nextSprintID, orgID, sprintID); err != nil {
+		// Carry forward all incomplete issues to the next planned sprint.
+		if _, err := tx.ExecContext(c.Context(), `UPDATE issues SET sprint_id=$1, updated_at=NOW() WHERE org_id=$2 AND sprint_id=$3 AND status <> ALL($4::text[])`, nextSprintID, orgID, sprintID, terminalIssueStatuses); err != nil {
 			return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 		}
 	} else if err != sql.ErrNoRows {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	} else {
-		if _, err := tx.ExecContext(c.Context(), `UPDATE issues SET sprint_id=NULL, updated_at=NOW() WHERE org_id=$1 AND sprint_id=$2 AND status <> 'done'`, orgID, sprintID); err != nil {
+		// If no next sprint exists, incomplete issues move back to backlog (NULL sprint_id).
+		if _, err := tx.ExecContext(c.Context(), `UPDATE issues SET sprint_id=NULL, updated_at=NOW() WHERE org_id=$1 AND sprint_id=$2 AND status <> ALL($3::text[])`, orgID, sprintID, terminalIssueStatuses); err != nil {
 			return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 		}
 	}
@@ -117,11 +130,11 @@ func (h *Handler) end(c *fiber.Ctx) error {
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{"id": sprintID, "status": "completed", "next_sprint_id": nextSprintID})
 }
 
-func nullableTime(value time.Time) any {
-	if value.IsZero() {
+func nullableTime(value *time.Time) any {
+	if value == nil || value.IsZero() {
 		return nil
 	}
-	return value
+	return *value
 }
 
 func (h *Handler) addIssues(c *fiber.Ctx) error {

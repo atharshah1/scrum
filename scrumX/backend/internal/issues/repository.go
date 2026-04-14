@@ -29,7 +29,11 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`
 		return Issue{}, err
 	}
 	for _, label := range issue.Labels {
-		if _, err = r.db.ExecContext(ctx, `INSERT INTO issue_labels (org_id, issue_id, label) VALUES ($1,$2,$3)`, issue.OrgID, issue.ID, strings.TrimSpace(label)); err != nil {
+		label = strings.TrimSpace(label)
+		if label == "" {
+			continue
+		}
+		if _, err = r.db.ExecContext(ctx, `INSERT INTO issue_labels (org_id, issue_id, label) VALUES ($1,$2,$3)`, issue.OrgID, issue.ID, label); err != nil {
 			return Issue{}, err
 		}
 	}
@@ -429,12 +433,7 @@ func (r *Repository) IsValidTransition(ctx context.Context, orgID, projectID uui
 	if count > 0 {
 		return true, nil
 	}
-	defaultTransitions := map[string][]string{
-		"todo":        {"in_progress", "done"},
-		"in_progress": {"todo", "done"},
-		"done":        {"todo"},
-	}
-	for _, allowed := range defaultTransitions[fromStatus] {
+	for _, allowed := range DefaultWorkflowTransitions[fromStatus] {
 		if allowed == toStatus {
 			return true, nil
 		}

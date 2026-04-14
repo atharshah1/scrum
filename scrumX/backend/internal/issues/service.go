@@ -44,8 +44,6 @@ func (s *Service) Create(ctx context.Context, orgID, actorID uuid.UUID, input Cr
 		if err := validateHierarchy(strings.ToLower(input.IssueType), parentIssue.IssueType); err != nil {
 			return Issue{}, err
 		}
-	} else if strings.EqualFold(input.IssueType, IssueTypeStory) || strings.EqualFold(input.IssueType, IssueTypeTask) || strings.EqualFold(input.IssueType, IssueTypeBug) {
-		// stories/tasks/bugs can still be top-level in backlog if desired, so allow nil parent
 	}
 	if input.SprintID != uuid.Nil {
 		ok, err = s.repo.SprintBelongsToProject(ctx, orgID, input.SprintID, input.ProjectID)
@@ -109,6 +107,11 @@ func (s *Service) Update(ctx context.Context, orgID, actorID, issueID uuid.UUID,
 		}
 		if !ok {
 			return Issue{}, errors.New("sprint must belong to same project")
+		}
+	}
+	if input.Status != nil {
+		if *input.Status == current.Status {
+			input.Status = nil
 		}
 	}
 	if input.Status != nil {
