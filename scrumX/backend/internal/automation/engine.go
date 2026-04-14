@@ -158,7 +158,11 @@ func (e *Engine) executeActionWithRetry(ctx context.Context, ruleID uuid.UUID, a
 		if attempt == e.maxRetries {
 			break
 		}
-		timer := time.NewTimer(time.Duration(1<<attempt) * e.backoff)
+		shift := attempt
+		if shift > 10 {
+			shift = 10
+		}
+		timer := time.NewTimer(time.Duration(1<<shift) * e.backoff)
 		select {
 		case <-ctx.Done():
 			if !timer.Stop() {
