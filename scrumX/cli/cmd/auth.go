@@ -55,6 +55,7 @@ var loginCmd = &cobra.Command{
 		cfg.AccessToken = tokens.AccessToken
 		cfg.RefreshToken = tokens.RefreshToken
 		cfg.OrgID = user.OrgID
+		cfg.CurrentOrgID = user.OrgID
 		cfg.UserID = user.ID
 		if err := cfgStore.Save(cfg); err != nil {
 			return err
@@ -77,6 +78,7 @@ var logoutCmd = &cobra.Command{
 		cfg.RefreshToken = ""
 		cfg.UserID = ""
 		cfg.OrgID = ""
+		cfg.CurrentOrgID = ""
 		if err := cfgStore.Save(cfg); err != nil {
 			return err
 		}
