@@ -38,6 +38,9 @@ type Engine struct {
 	backoff     time.Duration
 }
 
+// NewEngine configures automation processing with a fail-open deduplication strategy:
+// if durable idempotency persistence is temporarily unavailable, actions are still executed
+// (to preserve availability) and may be duplicated until storage recovers.
 func NewEngine(log *slog.Logger, store storeWriter, webhook webhookCaller, workers int, issues issueMutator, maxRetries int, backoff time.Duration) *Engine {
 	if workers <= 0 {
 		workers = 1
