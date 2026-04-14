@@ -116,5 +116,5 @@ func init() {
 
 	loginCmd.Flags().String("email", "", "Account email")
 	loginCmd.Flags().String("password", "", "Account password")
-	loginCmd.Flags().Bool("open-browser", true, "Open browser before login flow")
+	loginCmd.Flags().Bool("open-browser", false, "Open browser before login flow")
 }
