@@ -31,7 +31,6 @@ type transitionsLoadedMsg struct {
 type transitionAppliedMsg struct{ err error }
 type eventMsg struct{ event api.Event }
 type eventErrMsg struct{ err error }
-type tickMsg time.Time
 
 type Model struct {
 	client            *api.Client
@@ -53,7 +52,7 @@ func NewModel() Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.fetchDataCmd(), m.fetchNotificationsCmd(), m.listenEventCmd(), tickCmd())
+	return tea.Batch(m.fetchDataCmd(), m.fetchNotificationsCmd(), m.listenEventCmd())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -183,8 +182,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.listenEventCmd()
 
-	case tickMsg:
-		return m, tea.Batch(tickCmd(), m.fetchDataCmd())
 	}
 	return m, nil
 }
@@ -313,10 +310,6 @@ func (m Model) listenEventCmd() tea.Cmd {
 			return eventErrMsg{err: nil}
 		}
 	}
-}
-
-func tickCmd() tea.Cmd {
-	return tea.Tick(8*time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 func (m Model) boardColumns() []api.BoardColumn {
