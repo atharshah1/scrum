@@ -228,3 +228,23 @@ func (e *Engine) executeAction(ctx context.Context, action Action, event events.
 	}
 	return nil
 }
+
+func (e *Engine) ReplayDeadLetter(ctx context.Context, dl DeadLetter) error {
+	action := Action{
+		Type:   dl.ActionType,
+		Params: dl.ActionParams,
+	}
+	ruleID := uuid.Nil
+	if dl.RuleID != nil {
+		ruleID = *dl.RuleID
+	}
+	event := events.Event{
+		ID:        uuid.New(),
+		OrgID:     dl.OrgID,
+		Type:      "automation.dead_letter.replay",
+		ActorID:   uuid.Nil,
+		Payload:   dl.EventPayload,
+		CreatedAt: time.Now().UTC(),
+	}
+	return e.executeActionWithRetry(ctx, ruleID, action, event)
+}

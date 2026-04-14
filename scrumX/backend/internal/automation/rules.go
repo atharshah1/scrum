@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/atharshah1/scrum/scrumX/backend/internal/events"
 	"github.com/google/uuid"
@@ -38,6 +39,23 @@ type Store struct {
 }
 
 func NewStore(db *sql.DB) *Store { return &Store{db: db} }
+
+type DeadLetter struct {
+	ID             uuid.UUID      `json:"id"`
+	OrgID          uuid.UUID      `json:"org_id"`
+	RuleID         *uuid.UUID     `json:"rule_id,omitempty"`
+	EventPayload   map[string]any `json:"event_payload"`
+	ActionType     string         `json:"action_type"`
+	ActionParams   map[string]any `json:"action_params"`
+	ErrorMessage   string         `json:"error_message"`
+	Attempts       int            `json:"attempts"`
+	ReplayCount    int            `json:"replay_count"`
+	LastReplayedAt *time.Time     `json:"last_replayed_at,omitempty"`
+	LastReplayedBy *uuid.UUID     `json:"last_replayed_by,omitempty"`
+	LastReplayErr  string         `json:"last_replay_error,omitempty"`
+	Resolved       bool           `json:"resolved"`
+	CreatedAt      time.Time      `json:"created_at"`
+}
 
 func (s *Store) Save(ctx context.Context, rule Rule) (Rule, error) {
 	if rule.ID == uuid.Nil {
@@ -138,6 +156,62 @@ func (s *Store) PersistDeadLetter(ctx context.Context, orgID, ruleID uuid.UUID, 
 		orgID, ruleID, eventRaw, action.Type, paramsRaw, errMsg, attempts)
 }
 
+func (s *Store) ListDeadLetters(ctx context.Context, orgID uuid.UUID, page, limit int) ([]DeadLetter, int, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM automation_dead_letters WHERE org_id=$1`, orgID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, org_id, rule_id, event_payload, action_type, action_params, error_message, attempts, replay_count, last_replayed_at, last_replayed_by, last_replay_error, resolved, created_at
+		FROM automation_dead_letters
+		WHERE org_id=$1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3`, orgID, limit, (page-1)*limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []DeadLetter{}
+	for rows.Next() {
+		dl, err := scanDeadLetter(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, dl)
+	}
+	return out, total, rows.Err()
+}
+
+func (s *Store) GetDeadLetter(ctx context.Context, orgID, deadLetterID uuid.UUID) (DeadLetter, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, org_id, rule_id, event_payload, action_type, action_params, error_message, attempts, replay_count, last_replayed_at, last_replayed_by, last_replay_error, resolved, created_at
+		FROM automation_dead_letters
+		WHERE org_id=$1 AND id=$2`, orgID, deadLetterID)
+	return scanDeadLetter(row)
+}
+
+func (s *Store) RecordDeadLetterReplay(ctx context.Context, orgID, deadLetterID, actorID uuid.UUID, replayErr error) error {
+	var errMsg any
+	resolved := true
+	if replayErr != nil {
+		errMsg = replayErr.Error()
+		resolved = false
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE automation_dead_letters
+		SET replay_count = replay_count + 1,
+			last_replayed_at = NOW(),
+			last_replayed_by = $3,
+			last_replay_error = $4,
+			resolved = CASE WHEN $5 THEN TRUE ELSE resolved END
+		WHERE org_id = $1 AND id = $2`,
+		orgID, deadLetterID, actorID, errMsg, resolved)
+	return err
+}
+
 func actionFingerprint(action Action) (string, error) {
 	raw, err := json.Marshal(map[string]any{
 		"type":   action.Type,
@@ -202,4 +276,42 @@ func decodeRuleField(field string, ruleID uuid.UUID, raw []byte, target any) err
 		return fmt.Errorf("decode automation rule %s %s: %w", ruleID, field, err)
 	}
 	return nil
+}
+
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func scanDeadLetter(s scanner) (DeadLetter, error) {
+	var (
+		dl              DeadLetter
+		ruleID          *uuid.UUID
+		eventPayloadRaw []byte
+		actionParamsRaw []byte
+		lastReplayBy    *uuid.UUID
+		lastReplayErr   *string
+	)
+	if err := s.Scan(&dl.ID, &dl.OrgID, &ruleID, &eventPayloadRaw, &dl.ActionType, &actionParamsRaw, &dl.ErrorMessage, &dl.Attempts, &dl.ReplayCount, &dl.LastReplayedAt, &lastReplayBy, &lastReplayErr, &dl.Resolved, &dl.CreatedAt); err != nil {
+		return DeadLetter{}, err
+	}
+	dl.RuleID = ruleID
+	dl.LastReplayedBy = lastReplayBy
+	if lastReplayErr != nil {
+		dl.LastReplayErr = *lastReplayErr
+	}
+	if err := decodeJSONMap(eventPayloadRaw, &dl.EventPayload); err != nil {
+		return DeadLetter{}, err
+	}
+	if err := decodeJSONMap(actionParamsRaw, &dl.ActionParams); err != nil {
+		return DeadLetter{}, err
+	}
+	return dl, nil
+}
+
+func decodeJSONMap(raw []byte, out *map[string]any) error {
+	if len(raw) == 0 {
+		*out = map[string]any{}
+		return nil
+	}
+	return json.Unmarshal(raw, out)
 }

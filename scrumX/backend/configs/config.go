@@ -23,6 +23,7 @@ type Config struct {
 	AutomationBackoff    time.Duration
 	WebhookTimeout       time.Duration
 	WebsocketBufferSize  int
+	NotifyActor          bool
 }
 
 func Load() Config {
@@ -43,6 +44,7 @@ func Load() Config {
 		AutomationBackoff:    time.Duration(getEnvInt("AUTOMATION_BACKOFF_MS", 200)) * time.Millisecond,
 		WebhookTimeout:       time.Duration(getEnvInt("WEBHOOK_TIMEOUT_SECONDS", 5)) * time.Second,
 		WebsocketBufferSize:  getEnvInt("WEBSOCKET_BUFFER_SIZE", 64),
+		NotifyActor:          getEnvBool("NOTIFICATIONS_NOTIFY_ACTOR", false),
 	}
 }
 

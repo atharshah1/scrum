@@ -103,6 +103,45 @@ func (r *Repository) MarkAllRead(ctx context.Context, orgID, userID uuid.UUID) e
 	return err
 }
 
+// ListIssueWatchers returns all watcher user IDs for an issue.
+func (r *Repository) ListIssueWatchers(ctx context.Context, orgID, issueID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT user_id FROM issue_watchers WHERE org_id=$1 AND issue_id=$2`, orgID, issueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// GetIssueAssignee returns the current assignee ID for an issue.
+func (r *Repository) GetIssueAssignee(ctx context.Context, orgID, issueID uuid.UUID) (uuid.UUID, bool, error) {
+	var assigneeID *uuid.UUID
+	if err := r.db.QueryRowContext(ctx, `SELECT assignee_id FROM issues WHERE org_id=$1 AND id=$2`, orgID, issueID).Scan(&assigneeID); err != nil {
+		return uuid.Nil, false, err
+	}
+	if assigneeID == nil {
+		return uuid.Nil, false, nil
+	}
+	return *assigneeID, true, nil
+}
+
+// UserExistsInOrg checks if a user belongs to an organization.
+func (r *Repository) UserExistsInOrg(ctx context.Context, orgID, userID uuid.UUID) (bool, error) {
+	var count int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM users WHERE org_id=$1 AND id=$2`, orgID, userID).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func nullableUUID(id uuid.UUID) any {
 	if id == uuid.Nil {
 		return nil

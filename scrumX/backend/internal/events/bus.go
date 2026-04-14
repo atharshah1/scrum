@@ -67,6 +67,7 @@ func (b *Bus) Publish(ctx context.Context, event Event) error {
 	if b.kafka != nil {
 		if err := b.kafka.Publish(ctx, event); err != nil {
 			b.log.Warn("kafka publish failed", "error", err, "event", event.Type)
+			return err
 		}
 	}
 	return nil

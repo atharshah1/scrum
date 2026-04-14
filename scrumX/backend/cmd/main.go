@@ -76,7 +76,7 @@ func main() {
 	}
 
 	notifRepo := notifications.NewRepository(database)
-	notifService := notifications.NewService(notifRepo)
+	notifService := notifications.NewService(notifRepo, cfg.NotifyActor)
 	bus.Subscribe("issue.created", notifService.HandleEvent)
 	bus.Subscribe("issue.updated", notifService.HandleEvent)
 	bus.Subscribe("issue.comment_created", notifService.HandleEvent)
@@ -91,6 +91,19 @@ func main() {
 	app.Use(middleware.MetricsMiddleware(metrics))
 
 	app.Get("/health", func(c *fiber.Ctx) error { return c.JSON(fiber.Map{"status": "ok"}) })
+	app.Get("/health/ready", func(c *fiber.Ctx) error {
+		if cfg.KafkaEnabled && kafkaPublisher != nil {
+			ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
+			defer cancel()
+			if err := kafkaPublisher.Ping(ctx); err != nil {
+				return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+					"status": "degraded",
+					"kafka":  "unreachable",
+				})
+			}
+		}
+		return c.JSON(fiber.Map{"status": "ready"})
+	})
 	app.Get("/metrics", middleware.ProtectMetrics(cfg.MetricsToken), func(c *fiber.Ctx) error {
 		c.Set("Content-Type", "text/plain; version=0.0.4")
 		return c.SendString(metrics.PrometheusText())
@@ -121,7 +134,7 @@ func main() {
 	timetracking.NewHandler().RegisterRoutes(secure)
 	releasemodule.NewHandler().RegisterRoutes(secure)
 	itsm.NewHandler().RegisterRoutes(secure)
-	automation.NewHandler(automationStore).RegisterRoutes(secure)
+	automation.NewHandler(automationStore, automationEngine).RegisterRoutes(secure)
 	webhooks.NewHandler(webhookDispatcher, bus).RegisterRoutes(secure)
 	integrations.NewHandler().RegisterRoutes(secure)
 	workflows.NewHandler(database, authzService).RegisterRoutes(secure)
