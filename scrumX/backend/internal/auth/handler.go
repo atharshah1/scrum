@@ -3,8 +3,6 @@ package auth
 import (
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/utils"
 	"github.com/gofiber/fiber/v2"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
 type Handler struct {
@@ -61,34 +59,13 @@ func (h *Handler) refresh(c *fiber.Ctx) error {
 	if err := c.BodyParser(&payload); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
-	token, err := jwt.Parse(payload.RefreshToken, func(token *jwt.Token) (interface{}, error) {
-		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-			return nil, fiber.NewError(fiber.StatusUnauthorized, "unexpected signing method")
-		}
-		return []byte(h.refreshSecret), nil
-	})
-	if err != nil || !token.Valid {
-		return utils.JSONError(c, fiber.StatusUnauthorized, "invalid refresh token")
-	}
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return utils.JSONError(c, fiber.StatusUnauthorized, "invalid token claims")
-	}
-	subject, ok := claims["sub"].(string)
-	if !ok {
-		return utils.JSONError(c, fiber.StatusUnauthorized, "invalid subject claim")
-	}
-	userID, err := uuid.Parse(subject)
+	claims, err := ParseRefreshClaims(payload.RefreshToken, h.refreshSecret)
 	if err != nil {
-		return utils.JSONError(c, fiber.StatusUnauthorized, "invalid subject claim")
+		return utils.JSONError(c, fiber.StatusUnauthorized, err.Error())
 	}
-	user, err := h.service.GetByID(c.Context(), userID)
+	tokens, err := h.service.Refresh(c.Context(), claims.UserID, claims.OrgID, claims.Role, claims.TokenID)
 	if err != nil {
-		return utils.JSONError(c, fiber.StatusUnauthorized, "unknown user")
-	}
-	tokens, err := GenerateTokens(userID, user.OrgID, user.Role, h.accessSecret, h.refreshSecret)
-	if err != nil {
-		return utils.JSONError(c, fiber.StatusInternalServerError, "failed to mint tokens")
+		return utils.JSONError(c, fiber.StatusUnauthorized, err.Error())
 	}
 	return utils.JSONSuccess(c, fiber.StatusOK, tokens)
 }

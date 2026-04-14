@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -18,10 +19,15 @@ type Repository struct {
 func NewRepository(db *sql.DB) *Repository { return &Repository{db: db} }
 
 func (r *Repository) Create(ctx context.Context, issue Issue) (Issue, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Issue{}, err
+	}
+	defer tx.Rollback()
 	query := `
 INSERT INTO issues (id, org_id, project_id, parent_id, sprint_id, reporter_id, assignee_id, issue_type, title, description, status, priority, created_at, updated_at)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`
-	_, err := r.db.ExecContext(ctx, query,
+	_, err = tx.ExecContext(ctx, query,
 		issue.ID, issue.OrgID, issue.ProjectID, issue.ParentID, issue.SprintID, issue.ReporterID, issue.AssigneeID,
 		issue.IssueType, issue.Title, issue.Description, issue.Status, issue.Priority, issue.CreatedAt, issue.UpdatedAt,
 	)
@@ -33,17 +39,20 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`
 		if label == "" {
 			continue
 		}
-		if _, err = r.db.ExecContext(ctx, `INSERT INTO issue_labels (org_id, issue_id, label) VALUES ($1,$2,$3)`, issue.OrgID, issue.ID, label); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO issue_labels (org_id, issue_id, label) VALUES ($1,$2,$3)`, issue.OrgID, issue.ID, label); err != nil {
 			return Issue{}, err
 		}
 	}
-	return issue, err
+	if err := tx.Commit(); err != nil {
+		return Issue{}, err
+	}
+	return issue, nil
 }
 
 func (r *Repository) GetByID(ctx context.Context, orgID, issueID uuid.UUID) (Issue, error) {
 	var issue Issue
 	row := r.db.QueryRowContext(ctx, `SELECT id, org_id, project_id, parent_id, sprint_id, reporter_id, assignee_id, issue_type, title, description, status, priority, created_at, updated_at
-FROM issues WHERE id=$1 AND org_id=$2`, issueID, orgID)
+FROM issues WHERE id=$1 AND org_id=$2 AND deleted_at IS NULL`, issueID, orgID)
 	if err := row.Scan(&issue.ID, &issue.OrgID, &issue.ProjectID, &issue.ParentID, &issue.SprintID, &issue.ReporterID, &issue.AssigneeID, &issue.IssueType,
 		&issue.Title, &issue.Description, &issue.Status, &issue.Priority, &issue.CreatedAt, &issue.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -83,9 +92,14 @@ func (r *Repository) List(ctx context.Context, orgID uuid.UUID, filter ListIssue
 		order = "DESC"
 	}
 
-	where := []string{"i.org_id = $1"}
+	where := []string{"i.org_id = $1", "i.deleted_at IS NULL"}
 	args := []any{orgID}
 	argN := 2
+	if filter.ProjectID != uuid.Nil {
+		where = append(where, "i.project_id = $"+itoa(argN))
+		args = append(args, filter.ProjectID)
+		argN++
+	}
 	if filter.Status != "" {
 		where = append(where, "i.status = $"+itoa(argN))
 		args = append(args, filter.Status)
@@ -134,20 +148,33 @@ FROM issues i WHERE ` + whereClause + ` ORDER BY i.` + sortBy + ` ` + order + ` 
 	}
 	defer rows.Close()
 
-	issues := make([]Issue, 0)
+	issues := make([]Issue, 0, filter.Limit)
+	issueIDs := make([]uuid.UUID, 0, filter.Limit)
 	for rows.Next() {
 		var issue Issue
 		if err := rows.Scan(&issue.ID, &issue.OrgID, &issue.ProjectID, &issue.ParentID, &issue.SprintID, &issue.ReporterID, &issue.AssigneeID, &issue.IssueType,
 			&issue.Title, &issue.Description, &issue.Status, &issue.Priority, &issue.CreatedAt, &issue.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
-		issue.Labels, _ = r.ListLabels(ctx, issue.OrgID, issue.ID)
 		issues = append(issues, issue)
+		issueIDs = append(issueIDs, issue.ID)
+	}
+	labelsByIssue, err := r.ListLabelsByIssueIDs(ctx, orgID, issueIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	for i := range issues {
+		issues[i].Labels = labelsByIssue[issues[i].ID]
 	}
 	return issues, total, rows.Err()
 }
 
 func (r *Repository) Update(ctx context.Context, orgID, issueID uuid.UUID, input UpdateIssueInput) (Issue, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Issue{}, err
+	}
+	defer tx.Rollback()
 	setParts := []string{"updated_at = NOW()"}
 	args := []any{}
 	argN := 1
@@ -194,7 +221,8 @@ func (r *Repository) Update(ctx context.Context, orgID, issueID uuid.UUID, input
 	}
 	args = append(args, issueID, orgID)
 	query := `UPDATE issues SET ` + strings.Join(setParts, ", ") + ` WHERE id = $` + itoa(argN) + ` AND org_id = $` + itoa(argN+1)
-	result, err := r.db.ExecContext(ctx, query, args...)
+	query += ` AND deleted_at IS NULL`
+	result, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return Issue{}, err
 	}
@@ -202,15 +230,18 @@ func (r *Repository) Update(ctx context.Context, orgID, issueID uuid.UUID, input
 		return Issue{}, errors.New("issue not found")
 	}
 	if input.Labels != nil {
-		if err := r.ReplaceLabels(ctx, orgID, issueID, input.Labels); err != nil {
+		if err := r.replaceLabelsTx(ctx, tx, orgID, issueID, input.Labels); err != nil {
 			return Issue{}, err
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return Issue{}, err
 	}
 	return r.GetByID(ctx, orgID, issueID)
 }
 
 func (r *Repository) Delete(ctx context.Context, orgID, issueID uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM issues WHERE id=$1 AND org_id=$2`, issueID, orgID)
+	_, err := r.db.ExecContext(ctx, `UPDATE issues SET deleted_at=NOW(), updated_at=NOW() WHERE id=$1 AND org_id=$2 AND deleted_at IS NULL`, issueID, orgID)
 	return err
 }
 
@@ -318,7 +349,15 @@ func (r *Repository) RemoveLabel(ctx context.Context, orgID, issueID uuid.UUID, 
 }
 
 func (r *Repository) ReplaceLabels(ctx context.Context, orgID, issueID uuid.UUID, labels []string) error {
-	if _, err := r.db.ExecContext(ctx, `DELETE FROM issue_labels WHERE org_id=$1 AND issue_id=$2`, orgID, issueID); err != nil {
+	return r.replaceLabelsTx(ctx, nil, orgID, issueID, labels)
+}
+
+func (r *Repository) replaceLabelsTx(ctx context.Context, tx *sql.Tx, orgID, issueID uuid.UUID, labels []string) error {
+	execFn := r.db.ExecContext
+	if tx != nil {
+		execFn = tx.ExecContext
+	}
+	if _, err := execFn(ctx, `DELETE FROM issue_labels WHERE org_id=$1 AND issue_id=$2`, orgID, issueID); err != nil {
 		return err
 	}
 	for _, label := range labels {
@@ -326,7 +365,7 @@ func (r *Repository) ReplaceLabels(ctx context.Context, orgID, issueID uuid.UUID
 		if label == "" {
 			continue
 		}
-		if err := r.AddLabel(ctx, orgID, issueID, label); err != nil {
+		if _, err := execFn(ctx, `INSERT INTO issue_labels (org_id, issue_id, label) VALUES ($1,$2,$3)`, orgID, issueID, label); err != nil {
 			return err
 		}
 	}
@@ -407,7 +446,7 @@ func (r *Repository) ProjectExists(ctx context.Context, orgID, projectID uuid.UU
 
 func (r *Repository) IssueBelongsToProject(ctx context.Context, orgID, issueID, projectID uuid.UUID) (bool, error) {
 	var count int
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM issues WHERE id=$1 AND org_id=$2 AND project_id=$3`, issueID, orgID, projectID).Scan(&count); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM issues WHERE id=$1 AND org_id=$2 AND project_id=$3 AND deleted_at IS NULL`, issueID, orgID, projectID).Scan(&count); err != nil {
 		return false, err
 	}
 	return count > 0, nil
@@ -423,20 +462,80 @@ func (r *Repository) SprintBelongsToProject(ctx context.Context, orgID, sprintID
 }
 
 func (r *Repository) IsValidTransition(ctx context.Context, orgID, projectID uuid.UUID, fromStatus, toStatus string) (bool, error) {
+	rule, err := r.GetTransitionRule(ctx, orgID, projectID, fromStatus, toStatus)
+	return rule.Allowed, err
+}
+
+func (r *Repository) GetTransitionRule(ctx context.Context, orgID, projectID uuid.UUID, fromStatus, toStatus string) (WorkflowTransitionRule, error) {
 	if strings.EqualFold(fromStatus, toStatus) {
-		return true, nil
+		r := defaultRule()
+		r.Allowed = true
+		return r, nil
 	}
-	var count int
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_transitions WHERE org_id=$1 AND project_id=$2 AND from_status=$3 AND to_status=$4`, orgID, projectID, fromStatus, toStatus).Scan(&count); err != nil {
-		return false, err
+	var (
+		conditionsRaw []byte
+		validatorsRaw []byte
+		postRaw       []byte
+	)
+	rule := defaultRule()
+	err := r.db.QueryRowContext(ctx, `SELECT conditions, validators, post_functions FROM workflow_transitions WHERE org_id=$1 AND project_id=$2 AND from_status=$3 AND to_status=$4 LIMIT 1`,
+		orgID, projectID, fromStatus, toStatus).Scan(&conditionsRaw, &validatorsRaw, &postRaw)
+	if err == nil {
+		rule.Allowed = true
+		rule.HasCustomRule = true
+		rule.Conditions = decodeRuleJSON(conditionsRaw)
+		rule.Validators = decodeRuleJSON(validatorsRaw)
+		rule.PostFunctions = decodeRuleJSON(postRaw)
+		return rule, nil
 	}
-	if count > 0 {
-		return true, nil
+	if !errors.Is(err, sql.ErrNoRows) {
+		return defaultRule(), err
 	}
 	for _, allowed := range DefaultWorkflowTransitions[fromStatus] {
 		if allowed == toStatus {
-			return true, nil
+			rule.Allowed = true
+			return rule, nil
 		}
 	}
-	return false, nil
+	return rule, nil
+}
+
+func (r *Repository) GetIssueProjectID(ctx context.Context, orgID, issueID uuid.UUID) (uuid.UUID, error) {
+	var projectID uuid.UUID
+	err := r.db.QueryRowContext(ctx, `SELECT project_id FROM issues WHERE id=$1 AND org_id=$2 AND deleted_at IS NULL`, issueID, orgID).Scan(&projectID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return uuid.Nil, errors.New("issue not found")
+		}
+		return uuid.Nil, err
+	}
+	return projectID, nil
+}
+
+func (r *Repository) ListLabelsByIssueIDs(ctx context.Context, orgID uuid.UUID, issueIDs []uuid.UUID) (map[uuid.UUID][]string, error) {
+	result := make(map[uuid.UUID][]string, len(issueIDs))
+	if len(issueIDs) == 0 {
+		return result, nil
+	}
+	args := []any{orgID}
+	placeholders := make([]string, 0, len(issueIDs))
+	for i, issueID := range issueIDs {
+		args = append(args, issueID)
+		placeholders = append(placeholders, "$"+itoa(i+2))
+	}
+	query := fmt.Sprintf(`SELECT issue_id, label FROM issue_labels WHERE org_id=$1 AND issue_id IN (%s)`, strings.Join(placeholders, ","))
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var issueID uuid.UUID
+		var label string
+		if err := rows.Scan(&issueID, &label); err != nil {
+			return nil, err
+		}
+		result[issueID] = append(result[issueID], label)
+	}
+	return result, rows.Err()
 }

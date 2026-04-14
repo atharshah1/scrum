@@ -1,6 +1,7 @@
 package issues
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,6 +50,7 @@ type UpdateIssueInput struct {
 }
 
 type ListIssuesFilter struct {
+	ProjectID  uuid.UUID
 	Status     string
 	AssigneeID uuid.UUID
 	SprintID   uuid.UUID
@@ -80,6 +82,33 @@ type IssueActivity struct {
 	FromValue string    `json:"from_value,omitempty"`
 	ToValue   string    `json:"to_value,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type WorkflowTransitionRule struct {
+	Allowed       bool
+	HasCustomRule bool
+	Conditions    map[string]any
+	Validators    map[string]any
+	PostFunctions map[string]any
+}
+
+func defaultRule() WorkflowTransitionRule {
+	return WorkflowTransitionRule{
+		Conditions:    map[string]any{},
+		Validators:    map[string]any{},
+		PostFunctions: map[string]any{},
+	}
+}
+
+func decodeRuleJSON(raw []byte) map[string]any {
+	if len(raw) == 0 {
+		return map[string]any{}
+	}
+	out := map[string]any{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return map[string]any{}
+	}
+	return out
 }
 
 const (

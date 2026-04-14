@@ -2,7 +2,9 @@ package workflows
 
 import (
 	"database/sql"
+	"encoding/json"
 
+	"github.com/atharshah1/scrum/scrumX/backend/internal/authz"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/utils"
 	"github.com/gofiber/fiber/v2"
@@ -10,10 +12,13 @@ import (
 )
 
 type Handler struct {
-	db *sql.DB
+	db    *sql.DB
+	authz *authz.Service
 }
 
-func NewHandler(db *sql.DB) *Handler { return &Handler{db: db} }
+func NewHandler(db *sql.DB, authzService *authz.Service) *Handler {
+	return &Handler{db: db, authz: authzService}
+}
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
 	r := api.Group("/workflows")
@@ -31,7 +36,11 @@ func (h *Handler) listTransitions(c *fiber.Ctx) error {
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid project id")
 	}
-	rows, err := h.db.QueryContext(c.Context(), `SELECT id, from_status, to_status FROM workflow_transitions WHERE org_id=$1 AND project_id=$2 ORDER BY from_status, to_status`, orgID, projectID)
+	userID, _ := middleware.MustUserID(c)
+	if _, err := h.authz.ResolveProjectRole(c.Context(), orgID, userID, projectID); err != nil {
+		return utils.JSONError(c, fiber.StatusForbidden, "forbidden")
+	}
+	rows, err := h.db.QueryContext(c.Context(), `SELECT id, from_status, to_status, conditions, validators, post_functions FROM workflow_transitions WHERE org_id=$1 AND project_id=$2 ORDER BY from_status, to_status`, orgID, projectID)
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -40,10 +49,18 @@ func (h *Handler) listTransitions(c *fiber.Ctx) error {
 	for rows.Next() {
 		var id uuid.UUID
 		var fromStatus, toStatus string
-		if err := rows.Scan(&id, &fromStatus, &toStatus); err != nil {
+		var conditionsRaw, validatorsRaw, postRaw []byte
+		if err := rows.Scan(&id, &fromStatus, &toStatus, &conditionsRaw, &validatorsRaw, &postRaw); err != nil {
 			return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 		}
-		result = append(result, fiber.Map{"id": id, "from_status": fromStatus, "to_status": toStatus})
+		result = append(result, fiber.Map{
+			"id":             id,
+			"from_status":    fromStatus,
+			"to_status":      toStatus,
+			"conditions":     decodeJSON(conditionsRaw),
+			"validators":     decodeJSON(validatorsRaw),
+			"post_functions": decodeJSON(postRaw),
+		})
 	}
 	return utils.JSONSuccess(c, fiber.StatusOK, result)
 }
@@ -57,19 +74,38 @@ func (h *Handler) createTransition(c *fiber.Ctx) error {
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid project id")
 	}
+	userID, _ := middleware.MustUserID(c)
+	role, err := h.authz.ResolveProjectRole(c.Context(), orgID, userID, projectID)
+	if err != nil || !authz.CanWrite(role) {
+		return utils.JSONError(c, fiber.StatusForbidden, "forbidden")
+	}
 	var payload struct {
-		FromStatus string `json:"from_status"`
-		ToStatus   string `json:"to_status"`
+		FromStatus   string         `json:"from_status"`
+		ToStatus     string         `json:"to_status"`
+		Conditions   map[string]any `json:"conditions"`
+		Validators   map[string]any `json:"validators"`
+		PostFunction map[string]any `json:"post_functions"`
 	}
 	if err := c.BodyParser(&payload); err != nil || payload.FromStatus == "" || payload.ToStatus == "" {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
+	conditionsRaw, _ := json.Marshal(payload.Conditions)
+	validatorsRaw, _ := json.Marshal(payload.Validators)
+	postRaw, _ := json.Marshal(payload.PostFunction)
 	transitionID := uuid.New()
-	if _, err := h.db.ExecContext(c.Context(), `INSERT INTO workflow_transitions (id, org_id, project_id, from_status, to_status) VALUES ($1,$2,$3,$4,$5)`,
-		transitionID, orgID, projectID, payload.FromStatus, payload.ToStatus); err != nil {
+	if _, err := h.db.ExecContext(c.Context(), `INSERT INTO workflow_transitions (id, org_id, project_id, from_status, to_status, conditions, validators, post_functions) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		transitionID, orgID, projectID, payload.FromStatus, payload.ToStatus, conditionsRaw, validatorsRaw, postRaw); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
-	return utils.JSONSuccess(c, fiber.StatusCreated, fiber.Map{"id": transitionID, "project_id": projectID, "from_status": payload.FromStatus, "to_status": payload.ToStatus})
+	return utils.JSONSuccess(c, fiber.StatusCreated, fiber.Map{
+		"id":             transitionID,
+		"project_id":     projectID,
+		"from_status":    payload.FromStatus,
+		"to_status":      payload.ToStatus,
+		"conditions":     payload.Conditions,
+		"validators":     payload.Validators,
+		"post_functions": payload.PostFunction,
+	})
 }
 
 func (h *Handler) deleteTransition(c *fiber.Ctx) error {
@@ -81,6 +117,11 @@ func (h *Handler) deleteTransition(c *fiber.Ctx) error {
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid project id")
 	}
+	userID, _ := middleware.MustUserID(c)
+	role, err := h.authz.ResolveProjectRole(c.Context(), orgID, userID, projectID)
+	if err != nil || !authz.CanWrite(role) {
+		return utils.JSONError(c, fiber.StatusForbidden, "forbidden")
+	}
 	transitionID, err := uuid.Parse(c.Params("transitionId"))
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid transition id")
@@ -89,4 +130,13 @@ func (h *Handler) deleteTransition(c *fiber.Ctx) error {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func decodeJSON(raw []byte) map[string]any {
+	out := map[string]any{}
+	if len(raw) == 0 {
+		return out
+	}
+	_ = json.Unmarshal(raw, &out)
+	return out
 }

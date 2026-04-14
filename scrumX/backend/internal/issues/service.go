@@ -3,22 +3,28 @@ package issues
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
+	"github.com/atharshah1/scrum/scrumX/backend/internal/authz"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/events"
 	"github.com/google/uuid"
 )
 
 type Service struct {
-	repo *Repository
-	bus  events.Publisher
+	repo  *Repository
+	bus   events.Publisher
+	authz *authz.Service
 }
 
-func NewService(repo *Repository, bus events.Publisher) *Service {
-	return &Service{repo: repo, bus: bus}
+func NewService(repo *Repository, bus events.Publisher, authzService *authz.Service) *Service {
+	return &Service{repo: repo, bus: bus, authz: authzService}
 }
 
 func (s *Service) Create(ctx context.Context, orgID, actorID uuid.UUID, input CreateIssueInput) (Issue, error) {
+	if err := s.requireWriteProject(ctx, orgID, actorID, input.ProjectID); err != nil {
+		return Issue{}, err
+	}
 	if !ValidIssueType(strings.ToLower(input.IssueType)) && input.IssueType != "" {
 		return Issue{}, errors.New("invalid issue_type")
 	}
@@ -77,6 +83,9 @@ func (s *Service) Update(ctx context.Context, orgID, actorID, issueID uuid.UUID,
 	if err != nil {
 		return Issue{}, err
 	}
+	if err := s.requireWriteProject(ctx, orgID, actorID, current.ProjectID); err != nil {
+		return Issue{}, err
+	}
 	if input.IssueType != nil && !ValidIssueType(strings.ToLower(*input.IssueType)) {
 		return Issue{}, errors.New("invalid issue_type")
 	}
@@ -115,12 +124,15 @@ func (s *Service) Update(ctx context.Context, orgID, actorID, issueID uuid.UUID,
 		}
 	}
 	if input.Status != nil {
-		valid, err := s.repo.IsValidTransition(ctx, orgID, current.ProjectID, current.Status, *input.Status)
+		rule, err := s.repo.GetTransitionRule(ctx, orgID, current.ProjectID, current.Status, *input.Status)
 		if err != nil {
 			return Issue{}, err
 		}
-		if !valid {
+		if !rule.Allowed {
 			return Issue{}, errors.New("invalid status transition")
+		}
+		if err := applyTransitionRule(&input, current, actorID, rule); err != nil {
+			return Issue{}, err
 		}
 	}
 	issue, err := s.repo.Update(ctx, orgID, issueID, input)
@@ -136,6 +148,13 @@ func (s *Service) Update(ctx context.Context, orgID, actorID, issueID uuid.UUID,
 }
 
 func (s *Service) Delete(ctx context.Context, orgID, actorID, issueID uuid.UUID) error {
+	projectID, err := s.repo.GetIssueProjectID(ctx, orgID, issueID)
+	if err != nil {
+		return err
+	}
+	if err := s.requireWriteProject(ctx, orgID, actorID, projectID); err != nil {
+		return err
+	}
 	if err := s.repo.Delete(ctx, orgID, issueID); err != nil {
 		return err
 	}
@@ -153,6 +172,13 @@ func (s *Service) AddRelation(ctx context.Context, orgID, actorID, issueID, rela
 	if _, err := s.repo.GetByID(ctx, orgID, relatedIssueID); err != nil {
 		return err
 	}
+	projectID, err := s.repo.GetIssueProjectID(ctx, orgID, issueID)
+	if err != nil {
+		return err
+	}
+	if err := s.requireWriteProject(ctx, orgID, actorID, projectID); err != nil {
+		return err
+	}
 	if err := s.repo.AddRelation(ctx, orgID, issueID, relatedIssueID, relationType); err != nil {
 		return err
 	}
@@ -166,6 +192,13 @@ func (s *Service) ListRelations(ctx context.Context, orgID, issueID uuid.UUID) (
 }
 
 func (s *Service) AddWatcher(ctx context.Context, orgID, actorID, issueID, userID uuid.UUID) error {
+	projectID, err := s.repo.GetIssueProjectID(ctx, orgID, issueID)
+	if err != nil {
+		return err
+	}
+	if err := s.requireWriteProject(ctx, orgID, actorID, projectID); err != nil {
+		return err
+	}
 	if err := s.repo.AddWatcher(ctx, orgID, issueID, userID); err != nil {
 		return err
 	}
@@ -175,6 +208,13 @@ func (s *Service) AddWatcher(ctx context.Context, orgID, actorID, issueID, userI
 }
 
 func (s *Service) RemoveWatcher(ctx context.Context, orgID, actorID, issueID, userID uuid.UUID) error {
+	projectID, err := s.repo.GetIssueProjectID(ctx, orgID, issueID)
+	if err != nil {
+		return err
+	}
+	if err := s.requireWriteProject(ctx, orgID, actorID, projectID); err != nil {
+		return err
+	}
 	if err := s.repo.RemoveWatcher(ctx, orgID, issueID, userID); err != nil {
 		return err
 	}
@@ -191,6 +231,13 @@ func (s *Service) AddLabel(ctx context.Context, orgID, actorID, issueID uuid.UUI
 	if strings.TrimSpace(label) == "" {
 		return errors.New("label is required")
 	}
+	projectID, err := s.repo.GetIssueProjectID(ctx, orgID, issueID)
+	if err != nil {
+		return err
+	}
+	if err := s.requireWriteProject(ctx, orgID, actorID, projectID); err != nil {
+		return err
+	}
 	if err := s.repo.AddLabel(ctx, orgID, issueID, label); err != nil {
 		return err
 	}
@@ -202,6 +249,13 @@ func (s *Service) AddLabel(ctx context.Context, orgID, actorID, issueID uuid.UUI
 func (s *Service) RemoveLabel(ctx context.Context, orgID, actorID, issueID uuid.UUID, label string) error {
 	if strings.TrimSpace(label) == "" {
 		return errors.New("label is required")
+	}
+	projectID, err := s.repo.GetIssueProjectID(ctx, orgID, issueID)
+	if err != nil {
+		return err
+	}
+	if err := s.requireWriteProject(ctx, orgID, actorID, projectID); err != nil {
+		return err
 	}
 	if err := s.repo.RemoveLabel(ctx, orgID, issueID, label); err != nil {
 		return err
@@ -218,6 +272,13 @@ func (s *Service) ListLabels(ctx context.Context, orgID, issueID uuid.UUID) ([]s
 func (s *Service) CreateComment(ctx context.Context, orgID, actorID, issueID uuid.UUID, body string) (IssueComment, error) {
 	if strings.TrimSpace(body) == "" {
 		return IssueComment{}, errors.New("body is required")
+	}
+	projectID, err := s.repo.GetIssueProjectID(ctx, orgID, issueID)
+	if err != nil {
+		return IssueComment{}, err
+	}
+	if err := s.requireWriteProject(ctx, orgID, actorID, projectID); err != nil {
+		return IssueComment{}, err
 	}
 	comment, err := s.repo.CreateComment(ctx, orgID, issueID, actorID, body)
 	if err != nil {
@@ -250,6 +311,46 @@ func validateHierarchy(childType, parentType string) error {
 		if parentType != IssueTypeStory && parentType != IssueTypeEpic {
 			return errors.New("task/bug parent must be epic or story")
 		}
+	}
+	return nil
+}
+
+func (s *Service) requireWriteProject(ctx context.Context, orgID, actorID, projectID uuid.UUID) error {
+	if actorID == uuid.Nil {
+		return errors.New("missing actor")
+	}
+	role, err := s.authz.ResolveProjectRole(ctx, orgID, actorID, projectID)
+	if err != nil {
+		return err
+	}
+	if !authz.CanWrite(role) {
+		return errors.New("forbidden")
+	}
+	return nil
+}
+
+func applyTransitionRule(input *UpdateIssueInput, current Issue, actorID uuid.UUID, rule WorkflowTransitionRule) error {
+	if assigneeOnly, _ := rule.Conditions["assignee_only"].(bool); assigneeOnly {
+		if current.AssigneeID == nil || *current.AssigneeID != actorID {
+			return errors.New("only assignee can perform this transition")
+		}
+	}
+	if reqRaw, ok := rule.Validators["required_fields"]; ok {
+		reqFields, ok := reqRaw.([]any)
+		if ok {
+			for _, rf := range reqFields {
+				field, _ := rf.(string)
+				switch field {
+				case "assignee_id":
+					if current.AssigneeID == nil && (input.AssigneeID == nil || *input.AssigneeID == uuid.Nil) {
+						return fmt.Errorf("validator failed: %s is required", field)
+					}
+				}
+			}
+		}
+	}
+	if assignToActor, _ := rule.PostFunctions["assign_to_actor"].(bool); assignToActor && actorID != uuid.Nil {
+		input.AssigneeID = &actorID
 	}
 	return nil
 }

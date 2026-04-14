@@ -9,6 +9,7 @@ import (
 
 	"github.com/atharshah1/scrum/scrumX/backend/configs"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/auth"
+	"github.com/atharshah1/scrum/scrumX/backend/internal/authz"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/automation"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/boards"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/events"
@@ -47,14 +48,15 @@ func main() {
 	bus.Subscribe("*", wsHub.Broadcast)
 
 	webhookDispatcher := webhooks.NewDispatcher(log, bus, cfg.WebhookTimeout)
-	automationStore := automation.NewStore()
-	automationEngine := automation.NewEngine(log, automationStore, webhookDispatcher, cfg.AutomationWorkers)
+	automationStore := automation.NewStore(database)
+	automationEngine := automation.NewEngine(log, automationStore, webhookDispatcher, cfg.AutomationWorkers, database)
 	bus.Subscribe("*", automationEngine.Enqueue)
 
+	authzService := authz.NewService(database)
 	issueRepo := issues.NewRepository(database)
-	issueService := issues.NewService(issueRepo, bus)
+	issueService := issues.NewService(issueRepo, bus, authzService)
 
-	authService := auth.NewService(cfg.JWTSecret, cfg.JWTRefreshSecret)
+	authService := auth.NewService(database, cfg.JWTSecret, cfg.JWTRefreshSecret)
 	authHandler := auth.NewHandler(authService, cfg.JWTSecret, cfg.JWTRefreshSecret)
 
 	app := fiber.New()
@@ -80,17 +82,17 @@ func main() {
 
 	issues.NewHandler(issueService).RegisterRoutes(secure)
 	organizations.NewHandler().RegisterRoutes(secure)
-	users.NewHandler().RegisterRoutes(secure)
+	users.NewHandler(database, authzService).RegisterRoutes(secure)
 	projects.NewHandler().RegisterRoutes(secure)
-	sprints.NewHandler(database, bus).RegisterRoutes(secure)
-	boards.NewHandler(database).RegisterRoutes(secure)
+	sprints.NewHandler(database, bus, authzService).RegisterRoutes(secure)
+	boards.NewHandler(database, authzService).RegisterRoutes(secure)
 	timetracking.NewHandler().RegisterRoutes(secure)
 	releasemodule.NewHandler().RegisterRoutes(secure)
 	itsm.NewHandler().RegisterRoutes(secure)
 	automation.NewHandler(automationStore).RegisterRoutes(secure)
 	webhooks.NewHandler(webhookDispatcher, bus).RegisterRoutes(secure)
 	integrations.NewHandler().RegisterRoutes(secure)
-	workflows.NewHandler(database).RegisterRoutes(secure)
+	workflows.NewHandler(database, authzService).RegisterRoutes(secure)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

@@ -25,12 +25,18 @@ func (h *Handler) createRule(c *fiber.Ctx) error {
 	if !ok {
 		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
 	}
+	if middleware.Role(c) == "Viewer" {
+		return utils.JSONError(c, fiber.StatusForbidden, "forbidden")
+	}
 	var rule Rule
 	if err := c.BodyParser(&rule); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
 	rule.OrgID = orgID
-	rule = h.store.Save(rule)
+	rule, err := h.store.Save(c.Context(), rule)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
 	return utils.JSONSuccess(c, fiber.StatusCreated, rule)
 }
 
@@ -39,14 +45,27 @@ func (h *Handler) listRules(c *fiber.Ctx) error {
 	if !ok {
 		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
 	}
-	return utils.JSONSuccess(c, fiber.StatusOK, h.store.List(orgID))
+	rules, err := h.store.List(c.Context(), orgID)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return utils.JSONSuccess(c, fiber.StatusOK, rules)
 }
 
 func (h *Handler) deleteRule(c *fiber.Ctx) error {
+	orgID, ok := middleware.MustOrgID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
+	}
+	if middleware.Role(c) != "Admin" {
+		return utils.JSONError(c, fiber.StatusForbidden, "forbidden")
+	}
 	ruleID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid rule id")
 	}
-	h.store.Delete(ruleID)
+	if err := h.store.Delete(c.Context(), orgID, ruleID); err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

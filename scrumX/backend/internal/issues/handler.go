@@ -1,8 +1,11 @@
 package issues
 
 import (
+	"fmt"
 	"net/url"
+	"time"
 
+	"github.com/atharshah1/scrum/scrumX/backend/pkg/cache"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/utils"
 	"github.com/gofiber/fiber/v2"
@@ -11,9 +14,12 @@ import (
 
 type Handler struct {
 	service *Service
+	cache   *cache.TTLCache
 }
 
-func NewHandler(service *Service) *Handler { return &Handler{service: service} }
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service, cache: cache.NewTTLCache(10 * time.Second)}
+}
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
 	issues := api.Group("/issues")
@@ -99,11 +105,28 @@ func (h *Handler) list(c *fiber.Ctx) error {
 		}
 		filter.ParentID = id
 	}
+	if project := c.Query("project_id"); project != "" {
+		id, err := uuid.Parse(project)
+		if err != nil {
+			return utils.JSONError(c, fiber.StatusBadRequest, "invalid project_id")
+		}
+		filter.ProjectID = id
+	}
+	cacheKey := fmt.Sprintf("issues:%s:%s", orgID, c.Request().URI().QueryString())
+	if cached, ok := h.cache.Get(cacheKey); ok {
+		return utils.JSONSuccess(c, fiber.StatusOK, cached)
+	}
 	items, total, err := h.service.List(c.Context(), orgID, filter)
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return utils.JSONList(c, items, filter.Page, filter.Limit, total)
+	payload := fiber.Map{
+		"success": true,
+		"data":    items,
+		"meta":    fiber.Map{"page": filter.Page, "limit": filter.Limit, "total": total},
+	}
+	h.cache.Set(cacheKey, payload)
+	return c.Status(fiber.StatusOK).JSON(payload)
 }
 
 func (h *Handler) get(c *fiber.Ctx) error {

@@ -2,6 +2,7 @@ package automation
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"strings"
 
@@ -22,13 +23,14 @@ type Engine struct {
 	queue       chan events.Event
 	webhook     webhookCaller
 	workerCount int
+	db          *sql.DB
 }
 
-func NewEngine(log *slog.Logger, store *Store, webhook webhookCaller, workers int) *Engine {
+func NewEngine(log *slog.Logger, store *Store, webhook webhookCaller, workers int, db *sql.DB) *Engine {
 	if workers <= 0 {
 		workers = 1
 	}
-	return &Engine{log: log, store: store, queue: make(chan events.Event, 512), webhook: webhook, workerCount: workers}
+	return &Engine{log: log, store: store, queue: make(chan events.Event, 512), webhook: webhook, workerCount: workers, db: db}
 }
 
 func (e *Engine) Enqueue(event events.Event) {
@@ -57,13 +59,24 @@ func (e *Engine) worker(ctx context.Context) {
 }
 
 func (e *Engine) execute(ctx context.Context, event events.Event) {
-	for _, rule := range e.store.Matching(event.OrgID, event.Type) {
+	rules, err := e.store.Matching(ctx, event.OrgID, event.Type)
+	if err != nil {
+		e.log.Warn("automation_rules_fetch_failed", "error", err)
+		return
+	}
+	for _, rule := range rules {
 		if !e.conditionsMet(rule, event) {
+			e.store.RecordExecution(ctx, event.OrgID, rule.ID, event.Type, "skipped", map[string]any{"reason": "conditions_not_met"})
 			continue
 		}
+		status := "success"
 		for _, action := range rule.Actions {
-			e.executeAction(ctx, action, event)
+			if err := e.executeAction(ctx, action, event); err != nil {
+				status = "failed"
+				e.log.Warn("automation_action_failed", "error", err, "type", action.Type)
+			}
 		}
+		e.store.RecordExecution(ctx, event.OrgID, rule.ID, event.Type, status, map[string]any{"rule_name": rule.Name})
 	}
 }
 
@@ -97,11 +110,39 @@ func (e *Engine) conditionsMet(rule Rule, event events.Event) bool {
 	return true
 }
 
-func (e *Engine) executeAction(ctx context.Context, action Action, event events.Event) {
+func (e *Engine) executeAction(ctx context.Context, action Action, event events.Event) error {
 	e.log.Info("automation_action", "type", action.Type, "event", event.Type)
 	if action.Type == "call webhook" && e.webhook != nil {
 		if err := e.webhook.Send(ctx, event); err != nil {
 			e.log.Warn("automation_webhook_failed", "error", err)
+			return err
+		}
+		return nil
+	}
+	if e.db != nil && (action.Type == "update issue" || action.Type == "assign issue") {
+		issueID, _ := action.Params["issue_id"].(string)
+		if issueID == "" {
+			if fromPayload, ok := event.Payload["issue_id"].(string); ok {
+				issueID = fromPayload
+			}
+		}
+		if issueID == "" {
+			return nil
+		}
+		status, _ := action.Params["status"].(string)
+		assigneeID, _ := action.Params["assignee_id"].(string)
+		if status != "" {
+			if _, err := e.db.ExecContext(ctx, `UPDATE issues SET status=$1, updated_at=NOW() WHERE id=$2 AND org_id=$3 AND deleted_at IS NULL`,
+				strings.ToLower(strings.TrimSpace(status)), issueID, event.OrgID); err != nil {
+				return err
+			}
+		}
+		if assigneeID != "" {
+			if _, err := e.db.ExecContext(ctx, `UPDATE issues SET assignee_id=$1, updated_at=NOW() WHERE id=$2 AND org_id=$3 AND deleted_at IS NULL`,
+				assigneeID, issueID, event.OrgID); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
