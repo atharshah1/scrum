@@ -51,12 +51,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	healthCtx, healthCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer healthCancel()
 	if err := consumer.Ping(healthCtx); err != nil {
-		healthCancel()
 		log.Error("worker_kafka_unreachable", "error", err)
 		os.Exit(1)
 	}
-	healthCancel()
 	automationEngine.Start(ctx)
 
 	if err := consumer.Start(ctx); err != nil {

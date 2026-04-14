@@ -139,7 +139,7 @@ func (h *Handler) replayDeadLetter(c *fiber.Ctx) error {
 		return utils.JSONError(c, fiber.StatusNotFound, "dead letter not found")
 	}
 	if h.replayer == nil {
-		return utils.JSONError(c, fiber.StatusServiceUnavailable, "dead letter replay is unavailable")
+		return utils.JSONError(c, fiber.StatusServiceUnavailable, "dead letter replay service is not configured")
 	}
 	replayErr := h.replayer.ReplayDeadLetter(c.Context(), item)
 	_ = h.store.RecordDeadLetterReplay(c.Context(), orgID, deadLetterID, actorID, replayErr)

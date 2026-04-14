@@ -72,6 +72,7 @@ func (p *KafkaEventPublisher) Publish(ctx context.Context, event Event) error {
 		if lastErr == nil {
 			return nil
 		}
+		// Max wait is bounded by attempt<3, i.e. 100ms, 200ms, 400ms.
 		wait := time.Duration(1<<attempt) * kafkaPublishRetryBaseBackoff
 		timer := time.NewTimer(wait)
 		select {
