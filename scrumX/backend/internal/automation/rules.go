@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 
 	"github.com/google/uuid"
 )
@@ -71,9 +72,15 @@ func (s *Store) List(ctx context.Context, orgID uuid.UUID) ([]Rule, error) {
 		if err := rows.Scan(&r.ID, &r.OrgID, &r.Name, &r.Trigger, &conditionsRaw, &actionsRaw, &dslRaw); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal(conditionsRaw, &r.Conditions)
-		_ = json.Unmarshal(actionsRaw, &r.Actions)
-		_ = json.Unmarshal(dslRaw, &r.DSL)
+		if err := decodeRuleField("conditions", r.ID, conditionsRaw, &r.Conditions); err != nil {
+			return nil, err
+		}
+		if err := decodeRuleField("actions", r.ID, actionsRaw, &r.Actions); err != nil {
+			return nil, err
+		}
+		if err := decodeRuleField("dsl", r.ID, dslRaw, &r.DSL); err != nil {
+			return nil, err
+		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -97,9 +104,15 @@ WHERE org_id=$1 AND trigger=$2 AND enabled=TRUE ORDER BY created_at DESC`, orgID
 		if err := rows.Scan(&r.ID, &r.OrgID, &r.Name, &r.Trigger, &conditionsRaw, &actionsRaw, &dslRaw); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal(conditionsRaw, &r.Conditions)
-		_ = json.Unmarshal(actionsRaw, &r.Actions)
-		_ = json.Unmarshal(dslRaw, &r.DSL)
+		if err := decodeRuleField("conditions", r.ID, conditionsRaw, &r.Conditions); err != nil {
+			return nil, err
+		}
+		if err := decodeRuleField("actions", r.ID, actionsRaw, &r.Actions); err != nil {
+			return nil, err
+		}
+		if err := decodeRuleField("dsl", r.ID, dslRaw, &r.DSL); err != nil {
+			return nil, err
+		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -109,4 +122,14 @@ func (s *Store) RecordExecution(ctx context.Context, orgID, ruleID uuid.UUID, ev
 	raw, _ := json.Marshal(result)
 	_, _ = s.db.ExecContext(ctx, `INSERT INTO automation_executions (id, org_id, rule_id, event_type, status, result) VALUES ($1,$2,$3,$4,$5,$6)`,
 		uuid.New(), orgID, ruleID, eventType, status, raw)
+}
+
+func decodeRuleField(field string, ruleID uuid.UUID, raw []byte, target any) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(raw, target); err != nil {
+		return fmt.Errorf("decode automation rule %s %s: %w", ruleID, field, err)
+	}
+	return nil
 }

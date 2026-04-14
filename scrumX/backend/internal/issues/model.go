@@ -100,15 +100,15 @@ func defaultRule() WorkflowTransitionRule {
 	}
 }
 
-func decodeRuleJSON(raw []byte) map[string]any {
+func decodeRuleJSON(raw []byte) (map[string]any, error) {
 	if len(raw) == 0 {
-		return map[string]any{}
+		return map[string]any{}, nil
 	}
 	out := map[string]any{}
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return map[string]any{}
+		return nil, err
 	}
-	return out
+	return out, nil
 }
 
 const (

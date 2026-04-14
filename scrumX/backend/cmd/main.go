@@ -70,7 +70,7 @@ func main() {
 	app.Use(middleware.MetricsMiddleware(metrics))
 
 	app.Get("/health", func(c *fiber.Ctx) error { return c.JSON(fiber.Map{"status": "ok"}) })
-	app.Get("/metrics", func(c *fiber.Ctx) error {
+	app.Get("/metrics", middleware.ProtectMetrics(cfg.MetricsToken), func(c *fiber.Ctx) error {
 		c.Set("Content-Type", "text/plain; version=0.0.4")
 		return c.SendString(metrics.PrometheusText())
 	})

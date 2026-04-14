@@ -504,9 +504,15 @@ func (r *Repository) GetTransitionRule(ctx context.Context, orgID, projectID uui
 	if err == nil {
 		rule.Allowed = true
 		rule.HasCustomRule = true
-		rule.Conditions = decodeRuleJSON(conditionsRaw)
-		rule.Validators = decodeRuleJSON(validatorsRaw)
-		rule.PostFunctions = decodeRuleJSON(postRaw)
+		if rule.Conditions, err = decodeRuleJSON(conditionsRaw); err != nil {
+			return defaultRule(), fmt.Errorf("decode workflow transition conditions: %w", err)
+		}
+		if rule.Validators, err = decodeRuleJSON(validatorsRaw); err != nil {
+			return defaultRule(), fmt.Errorf("decode workflow transition validators: %w", err)
+		}
+		if rule.PostFunctions, err = decodeRuleJSON(postRaw); err != nil {
+			return defaultRule(), fmt.Errorf("decode workflow transition post_functions: %w", err)
+		}
 		return rule, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {

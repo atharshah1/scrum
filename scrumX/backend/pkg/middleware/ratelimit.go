@@ -15,8 +15,9 @@ type rateLimitEntry struct {
 
 func RateLimitMiddleware(limit int, window time.Duration) fiber.Handler {
 	var (
-		mu      sync.Mutex
-		entries = map[string]rateLimitEntry{}
+		mu          sync.Mutex
+		entries     = map[string]rateLimitEntry{}
+		nextCleanup time.Time
 	)
 	return func(c *fiber.Ctx) error {
 		if limit <= 0 || window <= 0 {
@@ -25,10 +26,13 @@ func RateLimitMiddleware(limit int, window time.Duration) fiber.Handler {
 		key := c.IP() + ":" + c.Route().Path
 		now := time.Now()
 		mu.Lock()
-		for existingKey, existingEntry := range entries {
-			if now.After(existingEntry.resetAt) {
-				delete(entries, existingKey)
+		if nextCleanup.IsZero() || !now.Before(nextCleanup) {
+			for existingKey, existingEntry := range entries {
+				if !now.Before(existingEntry.resetAt) {
+					delete(entries, existingKey)
+				}
 			}
+			nextCleanup = now.Add(window)
 		}
 		entry, ok := entries[key]
 		if !ok || now.After(entry.resetAt) {

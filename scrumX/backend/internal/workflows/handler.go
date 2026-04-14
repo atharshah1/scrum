@@ -3,6 +3,7 @@ package workflows
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 
 	"github.com/atharshah1/scrum/scrumX/backend/internal/authz"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
@@ -53,13 +54,25 @@ func (h *Handler) listTransitions(c *fiber.Ctx) error {
 		if err := rows.Scan(&id, &fromStatus, &toStatus, &conditionsRaw, &validatorsRaw, &postRaw); err != nil {
 			return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 		}
+		conditions, err := decodeJSON("conditions", conditionsRaw)
+		if err != nil {
+			return utils.JSONError(c, fiber.StatusInternalServerError, fmt.Sprintf("decode workflow transition %s: %v", id, err))
+		}
+		validators, err := decodeJSON("validators", validatorsRaw)
+		if err != nil {
+			return utils.JSONError(c, fiber.StatusInternalServerError, fmt.Sprintf("decode workflow transition %s: %v", id, err))
+		}
+		postFunctions, err := decodeJSON("post_functions", postRaw)
+		if err != nil {
+			return utils.JSONError(c, fiber.StatusInternalServerError, fmt.Sprintf("decode workflow transition %s: %v", id, err))
+		}
 		result = append(result, fiber.Map{
 			"id":             id,
 			"from_status":    fromStatus,
 			"to_status":      toStatus,
-			"conditions":     decodeJSON(conditionsRaw),
-			"validators":     decodeJSON(validatorsRaw),
-			"post_functions": decodeJSON(postRaw),
+			"conditions":     conditions,
+			"validators":     validators,
+			"post_functions": postFunctions,
 		})
 	}
 	return utils.JSONSuccess(c, fiber.StatusOK, result)
@@ -132,11 +145,13 @@ func (h *Handler) deleteTransition(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
-func decodeJSON(raw []byte) map[string]any {
+func decodeJSON(field string, raw []byte) (map[string]any, error) {
 	out := map[string]any{}
 	if len(raw) == 0 {
-		return out
+		return out, nil
 	}
-	_ = json.Unmarshal(raw, &out)
-	return out
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("%s: %w", field, err)
+	}
+	return out, nil
 }
