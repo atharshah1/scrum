@@ -13,3 +13,6 @@ scrum.exe
 # OS
 .DS_Store
 
+# JavaScript
+node_modules/
+.next/
