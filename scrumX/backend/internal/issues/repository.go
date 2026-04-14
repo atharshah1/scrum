@@ -83,6 +83,7 @@ func (r *Repository) List(ctx context.Context, orgID uuid.UUID, filter ListIssue
 		"priority":   "priority",
 		"status":     "status",
 		"title":      "title",
+		"relevance":  "relevance",
 	}[strings.ToLower(filter.SortBy)]
 	if sortBy == "" {
 		sortBy = "created_at"
@@ -131,9 +132,10 @@ func (r *Repository) List(ctx context.Context, orgID uuid.UUID, filter ListIssue
 		argN++
 	}
 	if filter.SearchQuery != "" {
-		where = append(where, "i.search_vector @@ plainto_tsquery('english',$"+itoa(argN)+")")
-		args = append(args, filter.SearchQuery)
-		argN++
+		searchArgN := argN
+		where = append(where, "(i.search_vector @@ websearch_to_tsquery('english',$"+itoa(searchArgN)+") OR i.title ILIKE $"+itoa(searchArgN+1)+" OR i.description ILIKE $"+itoa(searchArgN+1)+")")
+		args = append(args, filter.SearchQuery, "%"+filter.SearchQuery+"%")
+		argN += 2
 	}
 	whereClause := strings.Join(where, " AND ")
 
@@ -144,8 +146,17 @@ func (r *Repository) List(ctx context.Context, orgID uuid.UUID, filter ListIssue
 	}
 
 	offset := (filter.Page - 1) * filter.Limit
+	orderByClause := "i." + sortBy + " " + order
+	if sortBy == "relevance" {
+		if filter.SearchQuery == "" {
+			orderByClause = "i.created_at DESC"
+		} else {
+			searchRankArgN := argN - 2
+			orderByClause = "ts_rank_cd(i.search_vector, websearch_to_tsquery('english',$" + itoa(searchRankArgN) + ")) " + order + ", i.updated_at DESC"
+		}
+	}
 	query := `SELECT i.id, i.org_id, i.project_id, i.parent_id, i.sprint_id, i.reporter_id, i.assignee_id, i.issue_type, i.title, i.description, i.status, i.priority, i.created_at, i.updated_at
-FROM issues i WHERE ` + whereClause + ` ORDER BY i.` + sortBy + ` ` + order + ` LIMIT $` + itoa(argN) + ` OFFSET $` + itoa(argN+1)
+FROM issues i WHERE ` + whereClause + ` ORDER BY ` + orderByClause + ` LIMIT $` + itoa(argN) + ` OFFSET $` + itoa(argN+1)
 	args = append(args, filter.Limit, offset)
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {

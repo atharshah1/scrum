@@ -8,8 +8,24 @@ import (
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/cache"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/utils"
+	"github.com/atharshah1/scrum/scrumX/backend/pkg/validation"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+)
+
+var (
+	allowedIssueSortBy = map[string]struct{}{
+		"created_at": {},
+		"updated_at": {},
+		"priority":   {},
+		"status":     {},
+		"title":      {},
+		"relevance":  {},
+	}
+	allowedOrder = map[string]struct{}{
+		"asc":  {},
+		"desc": {},
+	}
 )
 
 type Handler struct {
@@ -59,9 +75,19 @@ func (h *Handler) create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&input); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
-	if input.ProjectID == uuid.Nil || input.Title == "" {
+	if input.ProjectID == uuid.Nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "project_id and title are required")
 	}
+	title, err := validation.NormalizeRequiredString("title", input.Title, 200)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	description, err := validation.NormalizeOptionalString("description", input.Description, 10000)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	input.Title = title
+	input.Description = description
 
 	issue, err := h.service.Create(c.Context(), orgID, actorID, input)
 	if err != nil {
@@ -75,15 +101,43 @@ func (h *Handler) list(c *fiber.Ctx) error {
 	if !ok {
 		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
 	}
+	sortBy, err := validation.NormalizeOptionalEnum("sort_by", c.Query("sort_by"), allowedIssueSortBy)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	order, err := validation.NormalizeOptionalEnum("order", c.Query("order"), allowedOrder)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	page, limit, err := validation.NormalizePagination(c.QueryInt("page", 1), c.QueryInt("limit", 20), 20, 100)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	status, err := validation.NormalizeOptionalString("status", c.Query("status"), 64)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	label, err := validation.NormalizeOptionalString("label", c.Query("label"), 64)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	issueType, err := validation.NormalizeOptionalString("issue_type", c.Query("issue_type"), 64)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	searchQuery, err := validation.NormalizeOptionalString("q", c.Query("q"), 200)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
 	filter := ListIssuesFilter{
-		Status:      c.Query("status"),
-		Label:       c.Query("label"),
-		IssueType:   c.Query("issue_type"),
-		SearchQuery: strings.TrimSpace(c.Query("q")),
-		SortBy:      c.Query("sort_by"),
-		Order:       c.Query("order"),
-		Page:        c.QueryInt("page", 1),
-		Limit:       c.QueryInt("limit", 20),
+		Status:      strings.ToLower(status),
+		Label:       strings.ToLower(label),
+		IssueType:   strings.ToLower(issueType),
+		SearchQuery: searchQuery,
+		SortBy:      sortBy,
+		Order:       order,
+		Page:        page,
+		Limit:       limit,
 	}
 	if assignee := c.Query("assignee_id"); assignee != "" {
 		id, err := uuid.Parse(assignee)
@@ -168,6 +222,44 @@ func (h *Handler) update(c *fiber.Ctx) error {
 	if err := c.BodyParser(&input); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
+	if input.Title != nil {
+		title, err := validation.NormalizeRequiredString("title", *input.Title, 200)
+		if err != nil {
+			return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+		}
+		input.Title = &title
+	}
+	if input.Description != nil {
+		description, err := validation.NormalizeOptionalString("description", *input.Description, 10000)
+		if err != nil {
+			return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+		}
+		input.Description = &description
+	}
+	if input.Status != nil {
+		status, err := validation.NormalizeRequiredString("status", *input.Status, 64)
+		if err != nil {
+			return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+		}
+		status = strings.ToLower(status)
+		input.Status = &status
+	}
+	if input.Priority != nil {
+		priority, err := validation.NormalizeRequiredString("priority", *input.Priority, 32)
+		if err != nil {
+			return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+		}
+		priority = strings.ToLower(priority)
+		input.Priority = &priority
+	}
+	if input.IssueType != nil {
+		issueType, err := validation.NormalizeRequiredString("issue_type", *input.IssueType, 32)
+		if err != nil {
+			return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+		}
+		issueType = strings.ToLower(issueType)
+		input.IssueType = &issueType
+	}
 	issue, err := h.service.Update(c.Context(), orgID, actorID, issueID, input)
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
@@ -211,6 +303,11 @@ func (h *Handler) addRelation(c *fiber.Ctx) error {
 	if err := c.BodyParser(&payload); err != nil || payload.RelatedIssueID == uuid.Nil || payload.RelationType == "" {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
+	relationType, err := validation.NormalizeRequiredString("relation_type", payload.RelationType, 64)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	payload.RelationType = strings.ToLower(relationType)
 	if err := h.service.AddRelation(c.Context(), orgID, actorID, issueID, payload.RelatedIssueID, payload.RelationType); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
@@ -307,6 +404,11 @@ func (h *Handler) addLabel(c *fiber.Ctx) error {
 	if err := c.BodyParser(&payload); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
+	label, err := validation.NormalizeRequiredString("label", payload.Label, 64)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	payload.Label = label
 	if err := h.service.AddLabel(c.Context(), orgID, actorID, issueID, payload.Label); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
@@ -346,8 +448,10 @@ func (h *Handler) listLabels(c *fiber.Ctx) error {
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	page := c.QueryInt("page", 1)
-	limit := c.QueryInt("limit", 50)
+	page, limit, err := validation.NormalizePagination(c.QueryInt("page", 1), c.QueryInt("limit", 50), 50, 200)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
 	paged, total := paginateStrings(items, page, limit)
 	return utils.JSONList(c, paged, page, limit, total)
 }
@@ -368,6 +472,11 @@ func (h *Handler) createComment(c *fiber.Ctx) error {
 	if err := c.BodyParser(&payload); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
+	body, err := validation.NormalizeRequiredString("body", payload.Body, 10000)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	payload.Body = body
 	comment, err := h.service.CreateComment(c.Context(), orgID, actorID, issueID, payload.Body)
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
@@ -384,8 +493,10 @@ func (h *Handler) listComments(c *fiber.Ctx) error {
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid id")
 	}
-	page := c.QueryInt("page", 1)
-	limit := c.QueryInt("limit", 50)
+	page, limit, err := validation.NormalizePagination(c.QueryInt("page", 1), c.QueryInt("limit", 50), 50, 200)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
 	comments, total, err := h.service.ListComments(c.Context(), orgID, issueID, page, limit)
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
@@ -402,8 +513,10 @@ func (h *Handler) listActivity(c *fiber.Ctx) error {
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid id")
 	}
-	page := c.QueryInt("page", 1)
-	limit := c.QueryInt("limit", 50)
+	page, limit, err := validation.NormalizePagination(c.QueryInt("page", 1), c.QueryInt("limit", 50), 50, 200)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
 	activity, total, err := h.service.ListActivities(c.Context(), orgID, issueID, page, limit)
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())

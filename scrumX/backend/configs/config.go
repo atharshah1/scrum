@@ -24,6 +24,11 @@ type Config struct {
 	WebhookTimeout       time.Duration
 	WebsocketBufferSize  int
 	NotifyActor          bool
+	CacheTTL             time.Duration
+	RedisEnabled         bool
+	RedisAddr            string
+	RedisPassword        string
+	RedisDB              int
 }
 
 func Load() Config {
@@ -45,6 +50,11 @@ func Load() Config {
 		WebhookTimeout:       time.Duration(getEnvInt("WEBHOOK_TIMEOUT_SECONDS", 5)) * time.Second,
 		WebsocketBufferSize:  getEnvInt("WEBSOCKET_BUFFER_SIZE", 64),
 		NotifyActor:          getEnvBool("NOTIFICATIONS_NOTIFY_ACTOR", false),
+		CacheTTL:             time.Duration(getEnvInt("CACHE_TTL_SECONDS", 30)) * time.Second,
+		RedisEnabled:         getEnvBool("REDIS_ENABLED", false),
+		RedisAddr:            getEnv("REDIS_ADDR", "redis:6379"),
+		RedisPassword:        getEnv("REDIS_PASSWORD", ""),
+		RedisDB:              getEnvInt("REDIS_DB", 0),
 	}
 }
 

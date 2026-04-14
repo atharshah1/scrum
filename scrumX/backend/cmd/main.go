@@ -61,7 +61,11 @@ func main() {
 	wsHub := events.NewWebsocketHub(log, cfg.WebsocketBufferSize)
 	bus.Subscribe("*", wsHub.Broadcast)
 
-	sharedCache := cache.NewTTLCache(30 * time.Second)
+	sharedCache := cache.NewTTLCache(cfg.CacheTTL)
+	if cfg.RedisEnabled {
+		sharedCache = cache.NewRedisBackedTTLCache(cfg.CacheTTL, cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	}
+	defer sharedCache.Close()
 	metrics := observability.NewMetrics()
 
 	authzService := authz.NewService(database)
@@ -86,7 +90,7 @@ func main() {
 	authService := auth.NewService(database, cfg.JWTSecret, cfg.JWTRefreshSecret)
 	authHandler := auth.NewHandler(authService, cfg.JWTSecret, cfg.JWTRefreshSecret)
 
-	app := fiber.New()
+	app := fiber.New(fiber.Config{BodyLimit: 1024 * 1024})
 	app.Use(middleware.LoggingMiddleware(log))
 	app.Use(middleware.MetricsMiddleware(metrics))
 
@@ -99,6 +103,16 @@ func main() {
 				return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 					"status": "degraded",
 					"kafka":  "unreachable",
+				})
+			}
+		}
+		if cfg.RedisEnabled {
+			ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
+			defer cancel()
+			if err := sharedCache.Ping(ctx); err != nil {
+				return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+					"status": "degraded",
+					"redis":  "unreachable",
 				})
 			}
 		}

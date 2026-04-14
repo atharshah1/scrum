@@ -35,9 +35,15 @@ func main() {
 	}
 	defer database.Close()
 
+	sharedCache := cache.NewTTLCache(cfg.CacheTTL)
+	if cfg.RedisEnabled {
+		sharedCache = cache.NewRedisBackedTTLCache(cfg.CacheTTL, cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	}
+	defer sharedCache.Close()
+
 	workerBus := events.NewBus(log, events.NewInternalBus(), nil)
 	authzService := authz.NewService(database)
-	issueService := issues.NewService(issues.NewRepository(database), workerBus, authzService, cache.NewTTLCache(30*time.Second))
+	issueService := issues.NewService(issues.NewRepository(database), workerBus, authzService, sharedCache)
 	webhookDispatcher := webhooks.NewDispatcher(log, workerBus, cfg.WebhookTimeout, database)
 	automationStore := automation.NewStore(database)
 	automationEngine := automation.NewEngine(log, automationStore, webhookDispatcher, cfg.AutomationWorkers, issueService, cfg.AutomationMaxRetries, cfg.AutomationBackoff)
@@ -55,6 +61,12 @@ func main() {
 	if err := consumer.Ping(healthCtx); err != nil {
 		log.Error("worker_kafka_unreachable", "error", err)
 		os.Exit(1)
+	}
+	if cfg.RedisEnabled {
+		if err := sharedCache.Ping(healthCtx); err != nil {
+			log.Error("worker_redis_unreachable", "error", err)
+			os.Exit(1)
+		}
 	}
 	automationEngine.Start(ctx)
 
