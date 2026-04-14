@@ -222,8 +222,3 @@ func uuidFromAny(v any) uuid.UUID {
 		return uuid.Nil
 	}
 }
-
-func uuidFromPayload(m map[string]any, key string) uuid.UUID {
-	id := uuidFromAny(m[key])
-	return id
-}

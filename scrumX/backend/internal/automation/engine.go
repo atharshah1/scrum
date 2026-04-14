@@ -11,6 +11,10 @@ import (
 	"github.com/google/uuid"
 )
 
+// maxBackoffShift bounds exponential retry growth to avoid unreasonably long waits.
+// With a 200ms base backoff this caps a single retry delay near 204s.
+const maxBackoffShift = 10
+
 type storeWriter interface {
 	Matching(ctx context.Context, orgID uuid.UUID, trigger string) ([]Rule, error)
 	RecordExecution(ctx context.Context, orgID, ruleID uuid.UUID, eventType, status string, result map[string]any)
@@ -162,8 +166,8 @@ func (e *Engine) executeActionWithRetry(ctx context.Context, ruleID uuid.UUID, a
 			break
 		}
 		shift := attempt
-		if shift > 10 {
-			shift = 10
+		if shift > maxBackoffShift {
+			shift = maxBackoffShift
 		}
 		timer := time.NewTimer(time.Duration(1<<shift) * e.backoff)
 		select {

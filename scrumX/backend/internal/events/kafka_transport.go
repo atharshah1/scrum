@@ -11,6 +11,8 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
+const kafkaPublishRetryBaseBackoff = 100 * time.Millisecond
+
 func splitBrokers(raw string) []string {
 	parts := strings.Split(raw, ",")
 	out := make([]string, 0, len(parts))
@@ -70,7 +72,7 @@ func (p *KafkaEventPublisher) Publish(ctx context.Context, event Event) error {
 		if lastErr == nil {
 			return nil
 		}
-		wait := time.Duration(1<<attempt) * 100 * time.Millisecond
+		wait := time.Duration(1<<attempt) * kafkaPublishRetryBaseBackoff
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():

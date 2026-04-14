@@ -18,7 +18,9 @@ type deadLetterReplayer interface {
 	ReplayDeadLetter(ctx context.Context, dl DeadLetter) error
 }
 
-func NewHandler(store *Store, replayer deadLetterReplayer) *Handler { return &Handler{store: store, replayer: replayer} }
+func NewHandler(store *Store, replayer deadLetterReplayer) *Handler {
+	return &Handler{store: store, replayer: replayer}
+}
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
 	routes := api.Group("/automation")
