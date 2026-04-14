@@ -62,6 +62,15 @@ CREATE TABLE IF NOT EXISTS workflow_states (
   position INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS workflow_transitions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  workflow_id UUID NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+  from_state_id UUID NOT NULL REFERENCES workflow_states(id) ON DELETE CASCADE,
+  to_state_id UUID NOT NULL REFERENCES workflow_states(id) ON DELETE CASCADE,
+  UNIQUE(workflow_id, from_state_id, to_state_id)
+);
+
 CREATE TABLE IF NOT EXISTS issue_types (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -75,30 +84,38 @@ CREATE TABLE IF NOT EXISTS issues (
   project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   reporter_id UUID NOT NULL REFERENCES users(id),
   assignee_id UUID REFERENCES users(id),
+  parent_id UUID REFERENCES issues(id) ON DELETE SET NULL,
+  sprint_id UUID,
   issue_type_id UUID REFERENCES issue_types(id),
+  issue_type TEXT NOT NULL DEFAULT 'task',
   title TEXT NOT NULL,
   description TEXT,
   status TEXT NOT NULL,
   priority TEXT NOT NULL,
+  deleted_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL
+  updated_at TIMESTAMPTZ NOT NULL,
+  CHECK (parent_id IS NULL OR parent_id <> id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_issues_org_project ON issues(org_id, project_id);
 
-CREATE TABLE IF NOT EXISTS issue_relations (
+CREATE TABLE IF NOT EXISTS issue_links (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   issue_id UUID NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
   related_issue_id UUID NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
-  relation_type TEXT NOT NULL
+  relation_type TEXT NOT NULL CHECK (relation_type IN ('blocks', 'is_blocked_by', 'relates_to', 'duplicates')),
+  UNIQUE(org_id, issue_id, related_issue_id, relation_type),
+  CHECK (issue_id <> related_issue_id)
 );
 
 CREATE TABLE IF NOT EXISTS issue_labels (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   issue_id UUID NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
-  label TEXT NOT NULL
+  label TEXT NOT NULL,
+  UNIQUE(org_id, issue_id, label)
 );
 
 CREATE TABLE IF NOT EXISTS issue_comments (
@@ -107,6 +124,17 @@ CREATE TABLE IF NOT EXISTS issue_comments (
   issue_id UUID NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
   author_id UUID NOT NULL REFERENCES users(id),
   body TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS issue_activities (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  issue_id UUID NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  actor_id UUID REFERENCES users(id),
+  action TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -134,6 +162,10 @@ CREATE TABLE IF NOT EXISTS sprints (
   start_at TIMESTAMPTZ,
   end_at TIMESTAMPTZ
 );
+
+ALTER TABLE issues
+  ADD CONSTRAINT IF NOT EXISTS fk_issues_sprint
+  FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS time_entries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
