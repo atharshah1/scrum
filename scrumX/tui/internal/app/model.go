@@ -32,6 +32,8 @@ type transitionAppliedMsg struct{ err error }
 type eventMsg struct{ event api.Event }
 type eventErrMsg struct{ err error }
 
+const eventListenTimeout = 25 * time.Second
+
 type Model struct {
 	client            *api.Client
 	loading           bool
@@ -292,7 +294,7 @@ func (m Model) applyTransitionCmd(issueID, status string) tea.Cmd {
 
 func (m Model) listenEventCmd() tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), eventListenTimeout)
 		defer cancel()
 		events, errs := m.client.StreamEvents(ctx)
 		select {

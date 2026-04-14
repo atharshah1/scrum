@@ -357,7 +357,6 @@ func parseCSV(in string) []string {
 		if v == "" {
 			continue
 		}
-		v = strings.ToLower(v)
 		if _, ok := seen[v]; ok {
 			continue
 		}

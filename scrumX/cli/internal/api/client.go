@@ -351,7 +351,7 @@ func (c *Client) authedRequest(method, path string, body any, out any) (*resty.R
 	if err == nil {
 		return resp, nil
 	}
-	if !strings.Contains(strings.ToLower(err.Error()), "401") || cfg.RefreshToken == "" {
+	if resp == nil || resp.StatusCode() != http.StatusUnauthorized || cfg.RefreshToken == "" {
 		return nil, err
 	}
 
@@ -421,7 +421,7 @@ func cleanLabels(labels []string) []string {
 	out := make([]string, 0, len(labels))
 	seen := map[string]struct{}{}
 	for _, label := range labels {
-		v := strings.ToLower(strings.TrimSpace(label))
+		v := strings.TrimSpace(label)
 		if v == "" {
 			continue
 		}
