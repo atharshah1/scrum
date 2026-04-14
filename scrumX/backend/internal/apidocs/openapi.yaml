@@ -1,0 +1,58 @@
+openapi: 3.0.3
+info:
+  title: ScrumX API
+  version: 1.0.0
+  description: Core API surface for ScrumX backend.
+servers:
+  - url: /api/v1
+paths:
+  /issues:
+    get:
+      summary: List issues
+      responses:
+        "200":
+          description: Issue list
+    post:
+      summary: Create issue
+      responses:
+        "201":
+          description: Created
+  /issues/{id}:
+    get:
+      summary: Get issue
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Issue
+    patch:
+      summary: Update issue
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Updated
+        "409":
+          description: Optimistic locking conflict
+  /sprints/{id}/start:
+    post:
+      summary: Start sprint
+      responses:
+        "200":
+          description: Sprint started
+  /sprints/{id}/end:
+    post:
+      summary: Complete sprint
+      responses:
+        "200":
+          description: Sprint completed

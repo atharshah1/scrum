@@ -49,11 +49,12 @@ func (b *InternalBus) Publish(_ context.Context, event Event) error {
 type Bus struct {
 	internal *InternalBus
 	kafka    KafkaPublisher
+	outbox   *OutboxStore
 	log      *slog.Logger
 }
 
-func NewBus(log *slog.Logger, internal *InternalBus, kafka KafkaPublisher) *Bus {
-	return &Bus{internal: internal, kafka: kafka, log: log}
+func NewBus(log *slog.Logger, internal *InternalBus, kafka KafkaPublisher, outbox *OutboxStore) *Bus {
+	return &Bus{internal: internal, kafka: kafka, outbox: outbox, log: log}
 }
 
 func (b *Bus) Subscribe(eventType string, handler Handler) {
@@ -65,8 +66,16 @@ func (b *Bus) Publish(ctx context.Context, event Event) error {
 		return err
 	}
 	if b.kafka != nil {
+		if b.outbox != nil {
+			if err := b.outbox.Enqueue(ctx, event); err != nil {
+				b.log.Warn("outbox enqueue failed", "error", err, "event", event.Type)
+				return err
+			}
+			return nil
+		}
 		if err := b.kafka.Publish(ctx, event); err != nil {
 			b.log.Warn("kafka publish failed", "error", err, "event", event.Type)
+			return err
 		}
 	}
 	return nil

@@ -3,6 +3,7 @@ package webhooks
 import (
 	"github.com/atharshah1/scrum/scrumX/backend/internal/events"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
+	"github.com/atharshah1/scrum/scrumX/backend/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
@@ -26,24 +27,31 @@ func (h *Handler) RegisterRoutes(api fiber.Router) {
 func (h *Handler) create(c *fiber.Ctx) error {
 	orgID, ok := middleware.MustOrgID(c)
 	if !ok {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "missing org context"})
+		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
 	}
 	var payload struct {
 		URL string `json:"url"`
 	}
 	if err := c.BodyParser(&payload); err != nil || payload.URL == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid payload"})
+		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
-	hook := h.dispatcher.Save(Webhook{OrgID: orgID, URL: payload.URL})
-	return c.Status(fiber.StatusCreated).JSON(hook)
+	hook, err := h.dispatcher.Save(c.Context(), Webhook{OrgID: orgID, URL: payload.URL})
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return utils.JSONSuccess(c, fiber.StatusCreated, hook)
 }
 
 func (h *Handler) list(c *fiber.Ctx) error {
 	orgID, ok := middleware.MustOrgID(c)
 	if !ok {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "missing org context"})
+		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
 	}
-	return c.JSON(h.dispatcher.List(orgID))
+	hooks, err := h.dispatcher.List(c.Context(), orgID)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return utils.JSONSuccess(c, fiber.StatusOK, hooks)
 }
 
 func (h *Handler) incoming(c *fiber.Ctx) error {
@@ -53,15 +61,15 @@ func (h *Handler) incoming(c *fiber.Ctx) error {
 		Data  map[string]any `json:"data"`
 	}
 	if err := c.BodyParser(&payload); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid payload"})
+		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
 	orgID, err := uuid.Parse(payload.OrgID)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid org_id"})
+		return utils.JSONError(c, fiber.StatusBadRequest, "invalid org_id")
 	}
 	event := events.New(orgID, payload.Type, uuid.Nil, payload.Data)
 	if err := h.bus.Publish(c.Context(), event); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return c.SendStatus(fiber.StatusAccepted)
+	return utils.JSONSuccess(c, fiber.StatusAccepted, fiber.Map{"message": "accepted"})
 }

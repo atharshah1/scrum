@@ -10,13 +10,42 @@ services:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/scrumx?sslmode=disable
       JWT_SECRET: ${JWT_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
-      KAFKA_ENABLED: "false"
+      KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
       KAFKA_BROKERS: kafka:9092
+      AUTOMATION_KAFKA_TOPIC: automation.events
+      AUTOMATION_KAFKA_GROUP: automation-workers
+      REDIS_ENABLED: ${REDIS_ENABLED:-false}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-30}
     depends_on:
       - postgres
       - redis
     ports:
       - "8080:8080"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    command: ["/app/worker"]
+    profiles: ["kafka"]
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/scrumx?sslmode=disable
+      KAFKA_ENABLED: "true"
+      KAFKA_BROKERS: kafka:9092
+      AUTOMATION_KAFKA_TOPIC: automation.events
+      AUTOMATION_KAFKA_GROUP: automation-workers
+      AUTOMATION_WORKERS: 2
+      REDIS_ENABLED: ${REDIS_ENABLED:-false}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-30}
+    depends_on:
+      - postgres
+      - kafka
 
   frontend:
     build:
