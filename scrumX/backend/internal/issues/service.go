@@ -30,9 +30,6 @@ func (s *Service) Create(ctx context.Context, orgID, actorID uuid.UUID, input Cr
 	if !ValidIssueType(strings.ToLower(input.IssueType)) && input.IssueType != "" {
 		return Issue{}, errors.New("invalid issue_type")
 	}
-	if !ValidIssueType(strings.ToLower(input.IssueType)) && input.IssueType != "" {
-		return Issue{}, errors.New("invalid issue_type")
-	}
 	ok, err := s.repo.ProjectExists(ctx, orgID, input.ProjectID)
 	if err != nil {
 		return Issue{}, err
