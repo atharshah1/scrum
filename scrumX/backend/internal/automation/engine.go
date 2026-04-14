@@ -2,16 +2,16 @@ package automation
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/atharshah1/scrum/scrumX/backend/internal/events"
 	"github.com/google/uuid"
 )
 
 type issueMutator interface {
-	UpdateStatus(ctx context.Context, issueID, orgID string, status string) error
+	ApplyAutomationUpdate(ctx context.Context, orgID, issueID uuid.UUID, status string, assigneeID *uuid.UUID) error
 }
 
 type webhookCaller interface {
@@ -24,14 +24,22 @@ type Engine struct {
 	queue       chan events.Event
 	webhook     webhookCaller
 	workerCount int
-	db          *sql.DB
+	issues      issueMutator
+	maxRetries  int
+	backoff     time.Duration
 }
 
-func NewEngine(log *slog.Logger, store *Store, webhook webhookCaller, workers int, db *sql.DB) *Engine {
+func NewEngine(log *slog.Logger, store *Store, webhook webhookCaller, workers int, issues issueMutator, maxRetries int, backoff time.Duration) *Engine {
 	if workers <= 0 {
 		workers = 1
 	}
-	return &Engine{log: log, store: store, queue: make(chan events.Event, 512), webhook: webhook, workerCount: workers, db: db}
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+	if backoff <= 0 {
+		backoff = 200 * time.Millisecond
+	}
+	return &Engine{log: log, store: store, queue: make(chan events.Event, 512), webhook: webhook, workerCount: workers, issues: issues, maxRetries: maxRetries, backoff: backoff}
 }
 
 func (e *Engine) Enqueue(event events.Event) {
@@ -72,7 +80,7 @@ func (e *Engine) execute(ctx context.Context, event events.Event) {
 		}
 		status := "success"
 		for _, action := range rule.Actions {
-			if err := e.executeAction(ctx, action, event); err != nil {
+			if err := e.executeActionWithRetry(ctx, action, event); err != nil {
 				status = "failed"
 				e.log.Warn("automation_action_failed", "error", err, "type", action.Type)
 			}
@@ -111,6 +119,25 @@ func (e *Engine) conditionsMet(rule Rule, event events.Event) bool {
 	return true
 }
 
+func (e *Engine) executeActionWithRetry(ctx context.Context, action Action, event events.Event) error {
+	var err error
+	for attempt := 0; attempt <= e.maxRetries; attempt++ {
+		err = e.executeAction(ctx, action, event)
+		if err == nil {
+			return nil
+		}
+		if attempt == e.maxRetries {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * e.backoff):
+		}
+	}
+	return err
+}
+
 func (e *Engine) executeAction(ctx context.Context, action Action, event events.Event) error {
 	e.log.Info("automation_action", "type", action.Type, "event", event.Type)
 	if action.Type == "call webhook" && e.webhook != nil {
@@ -120,7 +147,7 @@ func (e *Engine) executeAction(ctx context.Context, action Action, event events.
 		}
 		return nil
 	}
-	if e.db != nil && (action.Type == "update issue" || action.Type == "assign issue") {
+	if e.issues != nil && (action.Type == "update issue" || action.Type == "assign issue") {
 		issueID, ok := action.Params["issue_id"].(string)
 		if !ok && action.Params["issue_id"] != nil {
 			e.log.Warn("automation_invalid_param", "param", "issue_id", "action", action.Type)
@@ -146,18 +173,16 @@ func (e *Engine) executeAction(ctx context.Context, action Action, event events.
 		if !ok && action.Params["assignee_id"] != nil {
 			e.log.Warn("automation_invalid_param", "param", "assignee_id", "action", action.Type)
 		}
-		if status != "" {
-			if _, err := e.db.ExecContext(ctx, `UPDATE issues SET status=$1, updated_at=NOW() WHERE id=$2 AND org_id=$3 AND deleted_at IS NULL`,
-				strings.ToLower(strings.TrimSpace(status)), issueUUID, event.OrgID); err != nil {
-				return err
-			}
-		}
+		status = strings.ToLower(strings.TrimSpace(status))
 		if assigneeID != "" {
-			if _, err := e.db.ExecContext(ctx, `UPDATE issues SET assignee_id=$1, updated_at=NOW() WHERE id=$2 AND org_id=$3 AND deleted_at IS NULL`,
-				assigneeID, issueUUID, event.OrgID); err != nil {
-				return err
+			parsed := uuid.Nil
+			if parsed, err = uuid.Parse(assigneeID); err != nil {
+				e.log.Warn("automation_invalid_param", "param", "assignee_id", "value", assigneeID)
+				return nil
 			}
+			return e.issues.ApplyAutomationUpdate(ctx, event.OrgID, issueUUID, status, &parsed)
 		}
+		return e.issues.ApplyAutomationUpdate(ctx, event.OrgID, issueUUID, status, nil)
 	}
 	return nil
 }

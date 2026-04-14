@@ -8,6 +8,7 @@ import (
 
 	"github.com/atharshah1/scrum/scrumX/backend/internal/authz"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/events"
+	"github.com/atharshah1/scrum/scrumX/backend/pkg/cache"
 	"github.com/google/uuid"
 )
 
@@ -15,10 +16,11 @@ type Service struct {
 	repo  *Repository
 	bus   events.Publisher
 	authz *authz.Service
+	cache *cache.TTLCache
 }
 
-func NewService(repo *Repository, bus events.Publisher, authzService *authz.Service) *Service {
-	return &Service{repo: repo, bus: bus, authz: authzService}
+func NewService(repo *Repository, bus events.Publisher, authzService *authz.Service, sharedCache *cache.TTLCache) *Service {
+	return &Service{repo: repo, bus: bus, authz: authzService, cache: sharedCache}
 }
 
 func (s *Service) Create(ctx context.Context, orgID, actorID uuid.UUID, input CreateIssueInput) (Issue, error) {
@@ -67,6 +69,7 @@ func (s *Service) Create(ctx context.Context, orgID, actorID uuid.UUID, input Cr
 	}
 	_ = s.repo.AddActivity(ctx, orgID, created.ID, actorID, "created", "", "", "")
 	_ = s.bus.Publish(ctx, events.New(orgID, "issue.created", actorID, map[string]any{"issue": created}))
+	s.invalidateProjectCaches(orgID, input.ProjectID)
 	return created, nil
 }
 
@@ -144,6 +147,7 @@ func (s *Service) Update(ctx context.Context, orgID, actorID, issueID uuid.UUID,
 		_ = s.repo.AddActivity(ctx, orgID, issue.ID, actorID, "status_changed", "status", current.Status, *input.Status)
 	}
 	_ = s.bus.Publish(ctx, events.New(orgID, "issue.updated", actorID, map[string]any{"issue": issue}))
+	s.invalidateProjectCaches(orgID, current.ProjectID)
 	return issue, nil
 }
 
@@ -159,6 +163,7 @@ func (s *Service) Delete(ctx context.Context, orgID, actorID, issueID uuid.UUID)
 		return err
 	}
 	_ = s.bus.Publish(ctx, events.New(orgID, "issue.deleted", actorID, map[string]any{"issue_id": issueID}))
+	s.invalidateProjectCaches(orgID, projectID)
 	return nil
 }
 
@@ -184,6 +189,7 @@ func (s *Service) AddRelation(ctx context.Context, orgID, actorID, issueID, rela
 	}
 	_ = s.repo.AddActivity(ctx, orgID, issueID, actorID, "relation_added", "relation_type", "", relationType)
 	_ = s.bus.Publish(ctx, events.New(orgID, "issue.relation_added", actorID, map[string]any{"issue_id": issueID, "related_issue_id": relatedIssueID, "relation_type": relationType}))
+	s.invalidateProjectCaches(orgID, projectID)
 	return nil
 }
 
@@ -204,6 +210,7 @@ func (s *Service) AddWatcher(ctx context.Context, orgID, actorID, issueID, userI
 	}
 	_ = s.repo.AddActivity(ctx, orgID, issueID, actorID, "watcher_added", "user_id", "", userID.String())
 	_ = s.bus.Publish(ctx, events.New(orgID, "issue.watcher_added", actorID, map[string]any{"issue_id": issueID, "user_id": userID}))
+	s.invalidateProjectCaches(orgID, projectID)
 	return nil
 }
 
@@ -220,6 +227,7 @@ func (s *Service) RemoveWatcher(ctx context.Context, orgID, actorID, issueID, us
 	}
 	_ = s.repo.AddActivity(ctx, orgID, issueID, actorID, "watcher_removed", "user_id", userID.String(), "")
 	_ = s.bus.Publish(ctx, events.New(orgID, "issue.watcher_removed", actorID, map[string]any{"issue_id": issueID, "user_id": userID}))
+	s.invalidateProjectCaches(orgID, projectID)
 	return nil
 }
 
@@ -228,7 +236,8 @@ func (s *Service) ListWatchers(ctx context.Context, orgID, issueID uuid.UUID) ([
 }
 
 func (s *Service) AddLabel(ctx context.Context, orgID, actorID, issueID uuid.UUID, label string) error {
-	if strings.TrimSpace(label) == "" {
+	label = strings.ToLower(strings.TrimSpace(label))
+	if label == "" {
 		return errors.New("label is required")
 	}
 	projectID, err := s.repo.GetIssueProjectID(ctx, orgID, issueID)
@@ -243,11 +252,13 @@ func (s *Service) AddLabel(ctx context.Context, orgID, actorID, issueID uuid.UUI
 	}
 	_ = s.repo.AddActivity(ctx, orgID, issueID, actorID, "label_added", "label", "", label)
 	_ = s.bus.Publish(ctx, events.New(orgID, "issue.label_added", actorID, map[string]any{"issue_id": issueID, "label": label}))
+	s.invalidateProjectCaches(orgID, projectID)
 	return nil
 }
 
 func (s *Service) RemoveLabel(ctx context.Context, orgID, actorID, issueID uuid.UUID, label string) error {
-	if strings.TrimSpace(label) == "" {
+	label = strings.ToLower(strings.TrimSpace(label))
+	if label == "" {
 		return errors.New("label is required")
 	}
 	projectID, err := s.repo.GetIssueProjectID(ctx, orgID, issueID)
@@ -262,6 +273,7 @@ func (s *Service) RemoveLabel(ctx context.Context, orgID, actorID, issueID uuid.
 	}
 	_ = s.repo.AddActivity(ctx, orgID, issueID, actorID, "label_removed", "label", label, "")
 	_ = s.bus.Publish(ctx, events.New(orgID, "issue.label_removed", actorID, map[string]any{"issue_id": issueID, "label": label}))
+	s.invalidateProjectCaches(orgID, projectID)
 	return nil
 }
 
@@ -286,15 +298,16 @@ func (s *Service) CreateComment(ctx context.Context, orgID, actorID, issueID uui
 	}
 	_ = s.repo.AddActivity(ctx, orgID, issueID, actorID, "comment_created", "comment", "", body)
 	_ = s.bus.Publish(ctx, events.New(orgID, "issue.comment_created", actorID, map[string]any{"issue_id": issueID, "comment": comment}))
+	s.invalidateProjectCaches(orgID, projectID)
 	return comment, nil
 }
 
-func (s *Service) ListComments(ctx context.Context, orgID, issueID uuid.UUID) ([]IssueComment, error) {
-	return s.repo.ListComments(ctx, orgID, issueID)
+func (s *Service) ListComments(ctx context.Context, orgID, issueID uuid.UUID, page, limit int) ([]IssueComment, int, error) {
+	return s.repo.ListComments(ctx, orgID, issueID, page, limit)
 }
 
-func (s *Service) ListActivities(ctx context.Context, orgID, issueID uuid.UUID) ([]IssueActivity, error) {
-	return s.repo.ListActivities(ctx, orgID, issueID)
+func (s *Service) ListActivities(ctx context.Context, orgID, issueID uuid.UUID, page, limit int) ([]IssueActivity, int, error) {
+	return s.repo.ListActivities(ctx, orgID, issueID, page, limit)
 }
 
 func validateHierarchy(childType, parentType string) error {
@@ -361,4 +374,42 @@ func applyTransitionRule(input *UpdateIssueInput, current Issue, actorID uuid.UU
 		input.AssigneeID = &actorID
 	}
 	return nil
+}
+
+func (s *Service) ApplyAutomationUpdate(ctx context.Context, orgID, issueID uuid.UUID, status string, assigneeID *uuid.UUID) error {
+	current, err := s.repo.GetByID(ctx, orgID, issueID)
+	if err != nil {
+		return err
+	}
+	input := UpdateIssueInput{}
+	if strings.TrimSpace(status) != "" {
+		normalizedStatus := strings.ToLower(strings.TrimSpace(status))
+		input.Status = &normalizedStatus
+		rule, err := s.repo.GetTransitionRule(ctx, orgID, current.ProjectID, current.Status, normalizedStatus)
+		if err != nil {
+			return err
+		}
+		if !rule.Allowed {
+			return errors.New("invalid status transition")
+		}
+	}
+	if assigneeID != nil {
+		input.AssigneeID = assigneeID
+	}
+	updated, err := s.repo.Update(ctx, orgID, issueID, input)
+	if err != nil {
+		return err
+	}
+	_ = s.repo.AddActivity(ctx, orgID, issueID, uuid.Nil, "automation_updated", "", "", "")
+	_ = s.bus.Publish(ctx, events.New(orgID, "issue.automated", uuid.Nil, map[string]any{"issue": updated}))
+	s.invalidateProjectCaches(orgID, current.ProjectID)
+	return nil
+}
+
+func (s *Service) invalidateProjectCaches(orgID, _ uuid.UUID) {
+	if s.cache == nil {
+		return
+	}
+	s.cache.DeletePrefix("board:" + orgID.String() + ":")
+	s.cache.DeletePrefix("issues:" + orgID.String() + ":")
 }

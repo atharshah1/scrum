@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -41,5 +42,21 @@ func (c *TTLCache) Get(key string) (any, bool) {
 func (c *TTLCache) Set(key string, value any) {
 	c.mu.Lock()
 	c.items[key] = item{value: value, expiresAt: time.Now().Add(c.ttl)}
+	c.mu.Unlock()
+}
+
+func (c *TTLCache) Delete(key string) {
+	c.mu.Lock()
+	delete(c.items, key)
+	c.mu.Unlock()
+}
+
+func (c *TTLCache) DeletePrefix(prefix string) {
+	c.mu.Lock()
+	for key := range c.items {
+		if strings.HasPrefix(key, prefix) {
+			delete(c.items, key)
+		}
+	}
 	c.mu.Unlock()
 }

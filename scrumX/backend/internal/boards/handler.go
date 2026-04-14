@@ -4,9 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/atharshah1/scrum/scrumX/backend/internal/authz"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/cache"
@@ -28,8 +26,8 @@ var defaultBoardColumns = []boardColumn{
 	{Name: "Done", Statuses: []string{"done"}, Position: 3},
 }
 
-func NewHandler(db *sql.DB, authzService *authz.Service) *Handler {
-	return &Handler{db: db, authz: authzService, cache: cache.NewTTLCache(15 * time.Second)}
+func NewHandler(db *sql.DB, authzService *authz.Service, sharedCache *cache.TTLCache) *Handler {
+	return &Handler{db: db, authz: authzService, cache: sharedCache}
 }
 
 type boardColumn struct {
@@ -111,12 +109,12 @@ func (h *Handler) getBoard(c *fiber.Ctx) error {
 	if cached, ok := h.cache.Get(cacheKey); ok {
 		return utils.JSONSuccess(c, fiber.StatusOK, cached)
 	}
+	boardIssues, fetchErr := h.loadBoardIssues(c, orgID, projectID, collectBoardStatuses(columns), sprintID, limit, offset)
+	if fetchErr != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, fetchErr.Error())
+	}
 	for i := range columns {
-		issues, fetchErr := h.loadColumnIssues(c, orgID, projectID, columns[i].Statuses, sprintID, limit, offset)
-		if fetchErr != nil {
-			return utils.JSONError(c, fiber.StatusInternalServerError, fetchErr.Error())
-		}
-		columns[i].Issues = issues
+		columns[i].Issues = filterBoardIssuesByStatuses(boardIssues, columns[i].Statuses)
 	}
 	resp := fiber.Map{
 		"board_id":   boardID,
@@ -172,10 +170,13 @@ func (h *Handler) upsertColumns(c *fiber.Ctx) error {
 	if err := tx.Commit(); err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
+	if h.cache != nil {
+		h.cache.DeletePrefix(fmt.Sprintf("board:%s:%s:", orgID, boardID))
+	}
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{"message": "columns configured"})
 }
 
-func (h *Handler) loadColumnIssues(c *fiber.Ctx, orgID, projectID uuid.UUID, statuses []string, sprintID *uuid.UUID, limit, offset int) ([]fiber.Map, error) {
+func (h *Handler) loadBoardIssues(c *fiber.Ctx, orgID, projectID uuid.UUID, statuses []string, sprintID *uuid.UUID, limit, offset int) ([]fiber.Map, error) {
 	statuses = normalizeStatuses(statuses)
 	if len(statuses) == 0 {
 		return []fiber.Map{}, nil
@@ -184,17 +185,17 @@ func (h *Handler) loadColumnIssues(c *fiber.Ctx, orgID, projectID uuid.UUID, sta
 	statusPlaceholders := make([]string, 0, len(statuses))
 	for _, status := range statuses {
 		args = append(args, status)
-		statusPlaceholders = append(statusPlaceholders, "$"+strconv.Itoa(len(args)))
+		statusPlaceholders = append(statusPlaceholders, fmt.Sprintf("$%d", len(args)))
 	}
 	query := `SELECT id, title, status, priority, assignee_id, sprint_id
 FROM issues
 WHERE org_id=$1 AND project_id=$2 AND deleted_at IS NULL AND status IN (` + strings.Join(statusPlaceholders, ",") + `)`
 	if sprintID != nil {
 		args = append(args, *sprintID)
-		query += ` AND sprint_id=$` + strconv.Itoa(len(args))
+		query += fmt.Sprintf(" AND sprint_id=$%d", len(args))
 	}
 	args = append(args, limit, offset)
-	query += ` ORDER BY updated_at DESC, id DESC LIMIT $` + strconv.Itoa(len(args)-1) + ` OFFSET $` + strconv.Itoa(len(args))
+	query += fmt.Sprintf(" ORDER BY updated_at DESC, id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	rows, err := h.db.QueryContext(c.Context(), query, args...)
 	if err != nil {
 		return nil, err
@@ -218,6 +219,33 @@ WHERE org_id=$1 AND project_id=$2 AND deleted_at IS NULL AND status IN (` + stri
 		})
 	}
 	return out, rows.Err()
+}
+
+func collectBoardStatuses(columns []boardColumn) []string {
+	statuses := make([]string, 0, len(columns)*2)
+	for _, column := range columns {
+		statuses = append(statuses, column.Statuses...)
+	}
+	return statuses
+}
+
+func filterBoardIssuesByStatuses(items []fiber.Map, statuses []string) []fiber.Map {
+	normalized := normalizeStatuses(statuses)
+	if len(normalized) == 0 {
+		return []fiber.Map{}
+	}
+	allowed := make(map[string]struct{}, len(normalized))
+	for _, status := range normalized {
+		allowed[status] = struct{}{}
+	}
+	result := make([]fiber.Map, 0, len(items))
+	for _, item := range items {
+		status, _ := item["status"].(string)
+		if _, ok := allowed[status]; ok {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func normalizeStatuses(statuses []string) []string {

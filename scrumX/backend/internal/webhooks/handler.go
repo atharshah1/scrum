@@ -35,7 +35,10 @@ func (h *Handler) create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&payload); err != nil || payload.URL == "" {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
-	hook := h.dispatcher.Save(Webhook{OrgID: orgID, URL: payload.URL})
+	hook, err := h.dispatcher.Save(c.Context(), Webhook{OrgID: orgID, URL: payload.URL})
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
 	return utils.JSONSuccess(c, fiber.StatusCreated, hook)
 }
 
@@ -44,7 +47,11 @@ func (h *Handler) list(c *fiber.Ctx) error {
 	if !ok {
 		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
 	}
-	return utils.JSONSuccess(c, fiber.StatusOK, h.dispatcher.List(orgID))
+	hooks, err := h.dispatcher.List(c.Context(), orgID)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return utils.JSONSuccess(c, fiber.StatusOK, hooks)
 }
 
 func (h *Handler) incoming(c *fiber.Ctx) error {

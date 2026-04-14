@@ -3,7 +3,6 @@ package issues
 import (
 	"fmt"
 	"net/url"
-	"time"
 
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/cache"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
@@ -17,8 +16,8 @@ type Handler struct {
 	cache   *cache.TTLCache
 }
 
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service, cache: cache.NewTTLCache(10 * time.Second)}
+func NewHandler(service *Service, sharedCache *cache.TTLCache) *Handler {
+	return &Handler{service: service, cache: sharedCache}
 }
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
@@ -118,7 +117,7 @@ func (h *Handler) list(c *fiber.Ctx) error {
 		filter.SortBy, filter.Order, filter.Page, filter.Limit,
 	)
 	if cached, ok := h.cache.Get(cacheKey); ok {
-		return utils.JSONSuccess(c, fiber.StatusOK, cached)
+		return c.Status(fiber.StatusOK).JSON(cached)
 	}
 	items, total, err := h.service.List(c.Context(), orgID, filter)
 	if err != nil {
@@ -344,7 +343,10 @@ func (h *Handler) listLabels(c *fiber.Ctx) error {
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return utils.JSONSuccess(c, fiber.StatusOK, items)
+	page := c.QueryInt("page", 1)
+	limit := c.QueryInt("limit", 50)
+	paged, total := paginateStrings(items, page, limit)
+	return utils.JSONList(c, paged, page, limit, total)
 }
 
 func (h *Handler) createComment(c *fiber.Ctx) error {
@@ -379,11 +381,13 @@ func (h *Handler) listComments(c *fiber.Ctx) error {
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid id")
 	}
-	comments, err := h.service.ListComments(c.Context(), orgID, issueID)
+	page := c.QueryInt("page", 1)
+	limit := c.QueryInt("limit", 50)
+	comments, total, err := h.service.ListComments(c.Context(), orgID, issueID, page, limit)
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return utils.JSONSuccess(c, fiber.StatusOK, comments)
+	return utils.JSONList(c, comments, page, limit, total)
 }
 
 func (h *Handler) listActivity(c *fiber.Ctx) error {
@@ -395,9 +399,30 @@ func (h *Handler) listActivity(c *fiber.Ctx) error {
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid id")
 	}
-	activity, err := h.service.ListActivities(c.Context(), orgID, issueID)
+	page := c.QueryInt("page", 1)
+	limit := c.QueryInt("limit", 50)
+	activity, total, err := h.service.ListActivities(c.Context(), orgID, issueID, page, limit)
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return utils.JSONSuccess(c, fiber.StatusOK, activity)
+	return utils.JSONList(c, activity, page, limit, total)
+}
+
+func paginateStrings(items []string, page, limit int) ([]string, int) {
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	total := len(items)
+	start := (page - 1) * limit
+	if start >= total {
+		return []string{}, total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	return items[start:end], total
 }

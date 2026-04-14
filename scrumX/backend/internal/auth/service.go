@@ -40,6 +40,13 @@ func (s *Service) Register(ctx context.Context, email, password string) (User, T
 	if err != nil {
 		return User{}, TokenPair{}, err
 	}
+	var existing int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE email=$1`, email).Scan(&existing); err != nil {
+		return User{}, TokenPair{}, err
+	}
+	if existing > 0 {
+		return User{}, TokenPair{}, errors.New("email already registered")
+	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

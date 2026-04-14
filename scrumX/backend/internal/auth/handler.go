@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"time"
+
+	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/utils"
 	"github.com/gofiber/fiber/v2"
 )
@@ -17,6 +20,7 @@ func NewHandler(service *Service, accessSecret, refreshSecret string) *Handler {
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
 	auth := api.Group("/auth")
+	auth.Use(middleware.RateLimitMiddleware(20, time.Minute))
 	auth.Post("/register", h.register)
 	auth.Post("/login", h.login)
 	auth.Post("/refresh", h.refresh)

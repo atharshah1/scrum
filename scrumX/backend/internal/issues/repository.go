@@ -339,11 +339,13 @@ func (r *Repository) ListWatchers(ctx context.Context, orgID, issueID uuid.UUID)
 }
 
 func (r *Repository) AddLabel(ctx context.Context, orgID, issueID uuid.UUID, label string) error {
+	label = normalizeLabel(label)
 	_, err := r.db.ExecContext(ctx, `INSERT INTO issue_labels (org_id, issue_id, label) VALUES ($1,$2,$3)`, orgID, issueID, label)
 	return err
 }
 
 func (r *Repository) RemoveLabel(ctx context.Context, orgID, issueID uuid.UUID, label string) error {
+	label = normalizeLabel(label)
 	_, err := r.db.ExecContext(ctx, `DELETE FROM issue_labels WHERE org_id=$1 AND issue_id=$2 AND label=$3`, orgID, issueID, label)
 	return err
 }
@@ -364,7 +366,7 @@ func (r *Repository) replaceLabelsTx(ctx context.Context, tx *sql.Tx, orgID, iss
 	args := []any{}
 	argN := 1
 	for _, label := range labels {
-		label = strings.TrimSpace(label)
+		label = normalizeLabel(label)
 		if label == "" {
 			continue
 		}
@@ -405,21 +407,26 @@ func (r *Repository) CreateComment(ctx context.Context, orgID, issueID, authorID
 	return comment, err
 }
 
-func (r *Repository) ListComments(ctx context.Context, orgID, issueID uuid.UUID) ([]IssueComment, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, org_id, issue_id, author_id, body, created_at FROM issue_comments WHERE org_id=$1 AND issue_id=$2 ORDER BY created_at ASC`, orgID, issueID)
+func (r *Repository) ListComments(ctx context.Context, orgID, issueID uuid.UUID, page, limit int) ([]IssueComment, int, error) {
+	page, limit = normalizePageLimit(page, limit)
+	var total int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM issue_comments WHERE org_id=$1 AND issue_id=$2`, orgID, issueID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, org_id, issue_id, author_id, body, created_at FROM issue_comments WHERE org_id=$1 AND issue_id=$2 ORDER BY created_at ASC LIMIT $3 OFFSET $4`, orgID, issueID, limit, (page-1)*limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	result := []IssueComment{}
 	for rows.Next() {
 		var c IssueComment
 		if err := rows.Scan(&c.ID, &c.OrgID, &c.IssueID, &c.AuthorID, &c.Body, &c.CreatedAt); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		result = append(result, c)
 	}
-	return result, rows.Err()
+	return result, total, rows.Err()
 }
 
 func (r *Repository) AddActivity(ctx context.Context, orgID, issueID, actorID uuid.UUID, action, field, fromValue, toValue string) error {
@@ -428,21 +435,26 @@ func (r *Repository) AddActivity(ctx context.Context, orgID, issueID, actorID uu
 	return err
 }
 
-func (r *Repository) ListActivities(ctx context.Context, orgID, issueID uuid.UUID) ([]IssueActivity, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, org_id, issue_id, actor_id, action, field, from_value, to_value, created_at FROM issue_activities WHERE org_id=$1 AND issue_id=$2 ORDER BY created_at DESC`, orgID, issueID)
+func (r *Repository) ListActivities(ctx context.Context, orgID, issueID uuid.UUID, page, limit int) ([]IssueActivity, int, error) {
+	page, limit = normalizePageLimit(page, limit)
+	var total int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM issue_activities WHERE org_id=$1 AND issue_id=$2`, orgID, issueID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, org_id, issue_id, actor_id, action, field, from_value, to_value, created_at FROM issue_activities WHERE org_id=$1 AND issue_id=$2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`, orgID, issueID, limit, (page-1)*limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	result := []IssueActivity{}
 	for rows.Next() {
 		var a IssueActivity
 		if err := rows.Scan(&a.ID, &a.OrgID, &a.IssueID, &a.ActorID, &a.Action, &a.Field, &a.FromValue, &a.ToValue, &a.CreatedAt); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		result = append(result, a)
 	}
-	return result, rows.Err()
+	return result, total, rows.Err()
 }
 
 func (r *Repository) ProjectExists(ctx context.Context, orgID, projectID uuid.UUID) (bool, error) {
@@ -547,4 +559,18 @@ func (r *Repository) ListLabelsByIssueIDs(ctx context.Context, orgID uuid.UUID, 
 		result[issueID] = append(result[issueID], label)
 	}
 	return result, rows.Err()
+}
+
+func normalizeLabel(label string) string {
+	return strings.ToLower(strings.TrimSpace(label))
+}
+
+func normalizePageLimit(page, limit int) (int, int) {
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	return page, limit
 }

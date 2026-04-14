@@ -3,10 +3,10 @@ package webhooks
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/atharshah1/scrum/scrumX/backend/internal/events"
@@ -21,17 +21,16 @@ type Webhook struct {
 }
 
 type Dispatcher struct {
-	mu      sync.RWMutex
-	hooks   map[uuid.UUID]Webhook
+	db      *sql.DB
 	client  *http.Client
 	log     *slog.Logger
 	bus     *events.Bus
 	timeout time.Duration
 }
 
-func NewDispatcher(log *slog.Logger, bus *events.Bus, timeout time.Duration) *Dispatcher {
+func NewDispatcher(log *slog.Logger, bus *events.Bus, timeout time.Duration, db *sql.DB) *Dispatcher {
 	d := &Dispatcher{
-		hooks:   map[uuid.UUID]Webhook{},
+		db:      db,
 		client:  &http.Client{Timeout: timeout},
 		log:     log,
 		bus:     bus,
@@ -47,31 +46,38 @@ func NewDispatcher(log *slog.Logger, bus *events.Bus, timeout time.Duration) *Di
 	return d
 }
 
-func (d *Dispatcher) Save(hook Webhook) Webhook {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+func (d *Dispatcher) Save(ctx context.Context, hook Webhook) (Webhook, error) {
 	if hook.ID == uuid.Nil {
 		hook.ID = uuid.New()
 	}
 	hook.Enabled = true
-	d.hooks[hook.ID] = hook
-	return hook
+	_, err := d.db.ExecContext(ctx, `INSERT INTO webhooks (id, org_id, url, enabled) VALUES ($1,$2,$3,$4)`,
+		hook.ID, hook.OrgID, hook.URL, hook.Enabled)
+	return hook, err
 }
 
-func (d *Dispatcher) List(orgID uuid.UUID) []Webhook {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	result := []Webhook{}
-	for _, hook := range d.hooks {
-		if hook.OrgID == orgID {
-			result = append(result, hook)
-		}
+func (d *Dispatcher) List(ctx context.Context, orgID uuid.UUID) ([]Webhook, error) {
+	rows, err := d.db.QueryContext(ctx, `SELECT id, org_id, url, enabled FROM webhooks WHERE org_id=$1 ORDER BY created_at DESC`, orgID)
+	if err != nil {
+		return nil, err
 	}
-	return result
+	defer rows.Close()
+	result := []Webhook{}
+	for rows.Next() {
+		var hook Webhook
+		if err := rows.Scan(&hook.ID, &hook.OrgID, &hook.URL, &hook.Enabled); err != nil {
+			return nil, err
+		}
+		result = append(result, hook)
+	}
+	return result, rows.Err()
 }
 
 func (d *Dispatcher) Send(ctx context.Context, event events.Event) error {
-	hooks := d.List(event.OrgID)
+	hooks, err := d.List(ctx, event.OrgID)
+	if err != nil {
+		return err
+	}
 	for _, hook := range hooks {
 		if !hook.Enabled {
 			continue

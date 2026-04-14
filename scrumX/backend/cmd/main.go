@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/atharshah1/scrum/scrumX/backend/configs"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/auth"
@@ -24,9 +25,11 @@ import (
 	"github.com/atharshah1/scrum/scrumX/backend/internal/users"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/webhooks"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/workflows"
+	"github.com/atharshah1/scrum/scrumX/backend/pkg/cache"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/db"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/logger"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
+	"github.com/atharshah1/scrum/scrumX/backend/pkg/observability"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 )
@@ -47,22 +50,30 @@ func main() {
 	wsHub := events.NewWebsocketHub(log, cfg.WebsocketBufferSize)
 	bus.Subscribe("*", wsHub.Broadcast)
 
-	webhookDispatcher := webhooks.NewDispatcher(log, bus, cfg.WebhookTimeout)
-	automationStore := automation.NewStore(database)
-	automationEngine := automation.NewEngine(log, automationStore, webhookDispatcher, cfg.AutomationWorkers, database)
-	bus.Subscribe("*", automationEngine.Enqueue)
+	sharedCache := cache.NewTTLCache(30 * time.Second)
+	metrics := observability.NewMetrics()
 
 	authzService := authz.NewService(database)
 	issueRepo := issues.NewRepository(database)
-	issueService := issues.NewService(issueRepo, bus, authzService)
+	issueService := issues.NewService(issueRepo, bus, authzService, sharedCache)
+
+	webhookDispatcher := webhooks.NewDispatcher(log, bus, cfg.WebhookTimeout, database)
+	automationStore := automation.NewStore(database)
+	automationEngine := automation.NewEngine(log, automationStore, webhookDispatcher, cfg.AutomationWorkers, issueService, cfg.AutomationMaxRetries, cfg.AutomationBackoff)
+	bus.Subscribe("*", automationEngine.Enqueue)
 
 	authService := auth.NewService(database, cfg.JWTSecret, cfg.JWTRefreshSecret)
 	authHandler := auth.NewHandler(authService, cfg.JWTSecret, cfg.JWTRefreshSecret)
 
 	app := fiber.New()
 	app.Use(middleware.LoggingMiddleware(log))
+	app.Use(middleware.MetricsMiddleware(metrics))
 
 	app.Get("/health", func(c *fiber.Ctx) error { return c.JSON(fiber.Map{"status": "ok"}) })
+	app.Get("/metrics", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "text/plain; version=0.0.4")
+		return c.SendString(metrics.PrometheusText())
+	})
 	app.Get("/ws", websocket.New(func(conn *websocket.Conn) {
 		wsHub.Add(conn)
 		defer wsHub.Remove(conn)
@@ -76,16 +87,16 @@ func main() {
 	api := app.Group("/api/v1")
 	authHandler.RegisterRoutes(api)
 
-	secure := api.Group("", middleware.AuthMiddleware(cfg.JWTSecret), middleware.OrgContextMiddleware())
+	secure := api.Group("", middleware.RateLimitMiddleware(300, time.Minute), middleware.AuthMiddleware(cfg.JWTSecret), middleware.OrgContextMiddleware())
 	secure.Use(middleware.RBACMiddleware("Admin", "Member", "Viewer"))
 	secure.Use(middleware.AuditMiddleware(database))
 
-	issues.NewHandler(issueService).RegisterRoutes(secure)
+	issues.NewHandler(issueService, sharedCache).RegisterRoutes(secure)
 	organizations.NewHandler().RegisterRoutes(secure)
 	users.NewHandler(database, authzService).RegisterRoutes(secure)
 	projects.NewHandler().RegisterRoutes(secure)
-	sprints.NewHandler(database, bus, authzService).RegisterRoutes(secure)
-	boards.NewHandler(database, authzService).RegisterRoutes(secure)
+	sprints.NewHandler(database, bus, authzService, sharedCache).RegisterRoutes(secure)
+	boards.NewHandler(database, authzService, sharedCache).RegisterRoutes(secure)
 	timetracking.NewHandler().RegisterRoutes(secure)
 	releasemodule.NewHandler().RegisterRoutes(secure)
 	itsm.NewHandler().RegisterRoutes(secure)
