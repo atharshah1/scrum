@@ -22,6 +22,7 @@ import (
 	timetracking "github.com/atharshah1/scrum/scrumX/backend/internal/time"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/users"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/webhooks"
+	"github.com/atharshah1/scrum/scrumX/backend/internal/workflows"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/db"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/logger"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
@@ -81,14 +82,15 @@ func main() {
 	organizations.NewHandler().RegisterRoutes(secure)
 	users.NewHandler().RegisterRoutes(secure)
 	projects.NewHandler().RegisterRoutes(secure)
-	sprints.NewHandler().RegisterRoutes(secure)
-	boards.NewHandler().RegisterRoutes(secure)
+	sprints.NewHandler(database, bus).RegisterRoutes(secure)
+	boards.NewHandler(database).RegisterRoutes(secure)
 	timetracking.NewHandler().RegisterRoutes(secure)
 	releasemodule.NewHandler().RegisterRoutes(secure)
 	itsm.NewHandler().RegisterRoutes(secure)
 	automation.NewHandler(automationStore).RegisterRoutes(secure)
 	webhooks.NewHandler(webhookDispatcher, bus).RegisterRoutes(secure)
 	integrations.NewHandler().RegisterRoutes(secure)
+	workflows.NewHandler(database).RegisterRoutes(secure)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
