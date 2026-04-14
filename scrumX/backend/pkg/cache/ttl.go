@@ -145,9 +145,6 @@ func (c *TTLCache) RedisClient() *redis.Client {
 }
 
 func (c *TTLCache) GetOrLoad(key string, loader func() (any, error)) (any, error) {
-	if cached, ok := c.Get(key); ok {
-		return cached, nil
-	}
 	value, err, _ := c.sf.Do(key, func() (any, error) {
 		if cached, ok := c.Get(key); ok {
 			return cached, nil
