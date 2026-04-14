@@ -135,8 +135,8 @@ func (r *Repository) List(ctx context.Context, orgID uuid.UUID, filter ListIssue
 	if filter.SearchQuery != "" {
 		searchArgN := argN
 		searchQueryArgIndex = searchArgN
-		where = append(where, "(i.search_vector @@ websearch_to_tsquery('english',$"+itoa(searchArgN)+") OR i.title ILIKE $"+itoa(searchArgN+1)+" OR i.description ILIKE $"+itoa(searchArgN+1)+")")
-		args = append(args, filter.SearchQuery, filter.SearchQuery+"%")
+		where = append(where, "(i.search_vector @@ websearch_to_tsquery('english',$"+itoa(searchArgN)+") OR i.title ILIKE $"+itoa(searchArgN+1)+" ESCAPE '\\' OR i.description ILIKE $"+itoa(searchArgN+1)+" ESCAPE '\\')")
+		args = append(args, filter.SearchQuery, escapeLikePattern(filter.SearchQuery)+"%")
 		argN += 2
 	}
 	whereClause := strings.Join(where, " AND ")
@@ -263,6 +263,15 @@ func (r *Repository) Delete(ctx context.Context, orgID, issueID uuid.UUID) error
 }
 
 func itoa(v int) string { return strconv.Itoa(v) }
+
+func escapeLikePattern(v string) string {
+	replacer := strings.NewReplacer(
+		`\`, `\\`,
+		`%`, `\%`,
+		`_`, `\_`,
+	)
+	return replacer.Replace(v)
+}
 
 func NewIssue(orgID, projectID, reporterID uuid.UUID, input CreateIssueInput) Issue {
 	now := time.Now().UTC()
