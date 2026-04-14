@@ -21,6 +21,9 @@ func AuthMiddleware(jwtSecret string) fiber.Handler {
 		}
 
 		token, err := jwt.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
+			if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+				return nil, fiber.NewError(fiber.StatusUnauthorized, "unexpected signing method")
+			}
 			return []byte(jwtSecret), nil
 		})
 		if err != nil || !token.Valid {

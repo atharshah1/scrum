@@ -61,6 +61,9 @@ func (h *Handler) refresh(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid payload"})
 	}
 	token, err := jwt.Parse(payload.RefreshToken, func(token *jwt.Token) (interface{}, error) {
+		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			return nil, fiber.NewError(fiber.StatusUnauthorized, "unexpected signing method")
+		}
 		return []byte(h.refreshSecret), nil
 	})
 	if err != nil || !token.Valid {
@@ -78,9 +81,11 @@ func (h *Handler) refresh(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid subject claim"})
 	}
-	orgID := uuid.New()
-	role := "Member"
-	tokens, err := GenerateTokens(userID, orgID, role, h.accessSecret, h.refreshSecret)
+	user, err := h.service.GetByID(c.Context(), userID)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unknown user"})
+	}
+	tokens, err := GenerateTokens(userID, user.OrgID, user.Role, h.accessSecret, h.refreshSecret)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to mint tokens"})
 	}
