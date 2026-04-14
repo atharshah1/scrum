@@ -79,13 +79,11 @@ WHERE i.org_id=$1 AND i.deleted_at IS NULL`
 		argN++
 	}
 	if len(input.Labels) > 0 {
-		placeholders := make([]string, 0, len(input.Labels))
 		for _, label := range input.Labels {
-			placeholders = append(placeholders, "$"+itoa(argN))
-			args = append(args, strings.TrimSpace(label))
+			query += ` AND EXISTS (SELECT 1 FROM issue_labels il WHERE il.org_id=i.org_id AND il.issue_id=i.id AND il.label = $` + itoa(argN) + `)`
+			args = append(args, normalizeLabel(label))
 			argN++
 		}
-		query += ` AND EXISTS (SELECT 1 FROM issue_labels il WHERE il.org_id=i.org_id AND il.issue_id=i.id AND il.label IN (` + strings.Join(placeholders, ",") + `))`
 	}
 
 	sortBy := "i.created_at"
@@ -246,12 +244,12 @@ func (r *Repository) AddLabel(ctx context.Context, orgID, issueID uuid.UUID, lab
 	_, err := r.db.ExecContext(ctx, `
 INSERT INTO issue_labels (id, org_id, issue_id, label)
 VALUES ($1,$2,$3,$4)
-ON CONFLICT (org_id, issue_id, label) DO NOTHING`, uuid.New(), orgID, issueID, strings.TrimSpace(strings.ToLower(label)))
+ON CONFLICT (org_id, issue_id, label) DO NOTHING`, uuid.New(), orgID, issueID, normalizeLabel(label))
 	return err
 }
 
 func (r *Repository) RemoveLabel(ctx context.Context, orgID, issueID uuid.UUID, label string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM issue_labels WHERE org_id=$1 AND issue_id=$2 AND label=$3`, orgID, issueID, strings.TrimSpace(strings.ToLower(label)))
+	_, err := r.db.ExecContext(ctx, `DELETE FROM issue_labels WHERE org_id=$1 AND issue_id=$2 AND label=$3`, orgID, issueID, normalizeLabel(label))
 	return err
 }
 
@@ -335,6 +333,10 @@ func toJSON(payload map[string]any) string {
 }
 
 func itoa(v int) string { return strconv.Itoa(v) }
+
+func normalizeLabel(label string) string {
+	return strings.TrimSpace(strings.ToLower(label))
+}
 
 func NewIssue(orgID, projectID, reporterID uuid.UUID, input CreateIssueInput) Issue {
 	now := time.Now().UTC()

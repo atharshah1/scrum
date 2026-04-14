@@ -51,8 +51,23 @@ func TestValidateRelationType(t *testing.T) {
 	}
 }
 
+func TestValidateStatusAndPriority(t *testing.T) {
+	if err := validateStatus("todo"); err != nil {
+		t.Fatalf("expected todo to be valid: %v", err)
+	}
+	if err := validateStatus("closed"); err == nil {
+		t.Fatal("expected closed to be invalid")
+	}
+	if err := validatePriority("high"); err != nil {
+		t.Fatalf("expected high to be valid: %v", err)
+	}
+	if err := validatePriority("urgent"); err == nil {
+		t.Fatal("expected urgent to be invalid")
+	}
+}
+
 func TestSplitCSV(t *testing.T) {
-	labels := splitCSV("backend, high-priority, , Bug")
+	labels := parseLabelsFromCSV("backend, high-priority, , Bug")
 	if len(labels) != 3 {
 		t.Fatalf("expected 3 labels, got %d", len(labels))
 	}

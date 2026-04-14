@@ -323,7 +323,7 @@ func parseListIssuesInput(c *fiber.Ctx) (ListIssuesInput, error) {
 		Status:    strings.TrimSpace(c.Query("status")),
 		SortBy:    strings.TrimSpace(c.Query("sort_by")),
 		SortOrder: strings.TrimSpace(c.Query("sort_order")),
-		Labels:    splitCSV(c.Query("labels")),
+		Labels:    parseLabelsFromCSV(c.Query("labels")),
 		Limit:     50,
 		Offset:    0,
 	}
@@ -365,7 +365,7 @@ func parseListIssuesInput(c *fiber.Ctx) (ListIssuesInput, error) {
 	return input, nil
 }
 
-func splitCSV(value string) []string {
+func parseLabelsFromCSV(value string) []string {
 	if strings.TrimSpace(value) == "" {
 		return nil
 	}

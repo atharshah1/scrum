@@ -86,7 +86,6 @@ CREATE TABLE IF NOT EXISTS issues (
   assignee_id UUID REFERENCES users(id),
   parent_id UUID REFERENCES issues(id) ON DELETE SET NULL,
   sprint_id UUID,
-  issue_type_id UUID REFERENCES issue_types(id),
   issue_type TEXT NOT NULL DEFAULT 'task',
   title TEXT NOT NULL,
   description TEXT,
@@ -95,7 +94,8 @@ CREATE TABLE IF NOT EXISTS issues (
   deleted_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL,
-  CHECK (parent_id IS NULL OR parent_id <> id)
+  CHECK (parent_id IS NULL OR parent_id <> id),
+  CHECK (issue_type IN ('epic', 'story', 'task', 'bug'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_issues_org_project ON issues(org_id, project_id);
@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS sprints (
   end_at TIMESTAMPTZ
 );
 
+-- Added after sprints creation because issues is defined earlier in this bootstrap migration.
 ALTER TABLE issues
   ADD CONSTRAINT IF NOT EXISTS fk_issues_sprint
   FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE SET NULL;

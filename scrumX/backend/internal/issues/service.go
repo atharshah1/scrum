@@ -23,6 +23,9 @@ func (s *Service) Create(ctx context.Context, orgID, actorID uuid.UUID, input Cr
 	if err := validateIssueType(input.IssueType); err != nil {
 		return Issue{}, err
 	}
+	if err := validatePriority(input.Priority); err != nil {
+		return Issue{}, err
+	}
 
 	projectOwned, err := s.repo.ProjectBelongsToOrg(ctx, orgID, input.ProjectID)
 	if err != nil {
@@ -104,8 +107,16 @@ func (s *Service) Update(ctx context.Context, orgID, actorID, issueID uuid.UUID,
 	}
 
 	if input.Status != nil {
+		if err := validateStatus(*input.Status); err != nil {
+			return Issue{}, err
+		}
 		if !isAllowedTransition(current.Status, *input.Status) {
 			return Issue{}, fmt.Errorf("invalid transition: %s -> %s", current.Status, *input.Status)
+		}
+	}
+	if input.Priority != nil {
+		if err := validatePriority(*input.Priority); err != nil {
+			return Issue{}, err
 		}
 	}
 
@@ -138,7 +149,7 @@ func (s *Service) Update(ctx context.Context, orgID, actorID, issueID uuid.UUID,
 		_ = s.repo.LogActivity(ctx, orgID, actorID, "issue.status_changed", issue.ID, map[string]any{"from": current.Status, "to": issue.Status})
 	}
 	if input.AssigneeID != nil {
-		_ = s.repo.LogActivity(ctx, orgID, actorID, "issue.assigned", issue.ID, map[string]any{"assignee_id": input.AssigneeID.String()})
+		_ = s.repo.LogActivity(ctx, orgID, actorID, "issue.assigned", issue.ID, map[string]any{"assignee_id": uuidPtrString(input.AssigneeID)})
 	}
 	_ = s.bus.Publish(ctx, events.New(orgID, "issue.updated", actorID, map[string]any{"issue": issue}))
 	return issue, nil
@@ -277,6 +288,31 @@ func validateHierarchy(childType, parentType string) error {
 		return errors.New("epic issues cannot have a parent")
 	}
 	return nil
+}
+
+func validateStatus(status string) error {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "todo", "in_progress", "in_review", "done":
+		return nil
+	default:
+		return errors.New("invalid status")
+	}
+}
+
+func validatePriority(priority string) error {
+	switch strings.ToLower(strings.TrimSpace(priority)) {
+	case "", "low", "medium", "high", "critical":
+		return nil
+	default:
+		return errors.New("invalid priority")
+	}
+}
+
+func uuidPtrString(id *uuid.UUID) string {
+	if id == nil {
+		return ""
+	}
+	return id.String()
 }
 
 func isAllowedTransition(current, next string) bool {
