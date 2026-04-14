@@ -130,6 +130,11 @@ func (r *Repository) List(ctx context.Context, orgID uuid.UUID, filter ListIssue
 		args = append(args, filter.Label)
 		argN++
 	}
+	if filter.SearchQuery != "" {
+		where = append(where, "i.search_vector @@ plainto_tsquery('english',$"+itoa(argN)+")")
+		args = append(args, filter.SearchQuery)
+		argN++
+	}
 	whereClause := strings.Join(where, " AND ")
 
 	var total int
@@ -292,6 +297,30 @@ func (r *Repository) AddRelation(ctx context.Context, orgID, issueID, relatedIss
 	return err
 }
 
+// HasCircularRelation reports whether adding issueID → relatedIssueID for relationType
+// would create a cycle by checking whether issueID is already reachable from relatedIssueID
+// through the existing graph of the same relation type.
+func (r *Repository) HasCircularRelation(ctx context.Context, orgID, issueID, relatedIssueID uuid.UUID, relationType string) (bool, error) {
+	// A → B creates a cycle when B can already reach A through the same relation.
+	const query = `
+WITH RECURSIVE chain AS (
+  SELECT related_issue_id AS id
+  FROM issue_relations
+  WHERE org_id=$1 AND issue_id=$2 AND relation_type=$3
+  UNION ALL
+  SELECT r.related_issue_id
+  FROM issue_relations r
+  JOIN chain c ON c.id = r.issue_id
+  WHERE r.org_id=$1 AND r.relation_type=$3
+)
+SELECT COUNT(*) FROM chain WHERE id=$4`
+	var count int
+	if err := r.db.QueryRowContext(ctx, query, orgID, relatedIssueID, relationType, issueID).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (r *Repository) ListRelations(ctx context.Context, orgID, issueID uuid.UUID) ([]map[string]any, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT related_issue_id, relation_type FROM issue_relations WHERE org_id=$1 AND issue_id=$2`, orgID, issueID)
 	if err != nil {
@@ -340,7 +369,7 @@ func (r *Repository) ListWatchers(ctx context.Context, orgID, issueID uuid.UUID)
 
 func (r *Repository) AddLabel(ctx context.Context, orgID, issueID uuid.UUID, label string) error {
 	label = normalizeLabel(label)
-	_, err := r.db.ExecContext(ctx, `INSERT INTO issue_labels (org_id, issue_id, label) VALUES ($1,$2,$3)`, orgID, issueID, label)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO issue_labels (org_id, issue_id, label) VALUES ($1,$2,$3) ON CONFLICT (org_id, issue_id, label) DO NOTHING`, orgID, issueID, label)
 	return err
 }
 

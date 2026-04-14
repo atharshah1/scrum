@@ -105,7 +105,7 @@ func (h *Handler) getBoard(c *fiber.Ctx) error {
 	if sprintID != nil {
 		normalizedSprint = sprintID.String()
 	}
-	cacheKey := fmt.Sprintf("board:%s:%s:%d:%d:%s", orgID, boardID, page, limit, normalizedSprint)
+	cacheKey := fmt.Sprintf("board:%s:%s:%s:%d:%d:%s", orgID, projectID, boardID, page, limit, normalizedSprint)
 	if cached, ok := h.cache.Get(cacheKey); ok {
 		return utils.JSONSuccess(c, fiber.StatusOK, cached)
 	}
@@ -134,6 +134,10 @@ func (h *Handler) upsertColumns(c *fiber.Ctx) error {
 	boardID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid board id")
+	}
+	var projectID uuid.UUID
+	if err := h.db.QueryRowContext(c.Context(), `SELECT project_id FROM boards WHERE id=$1 AND org_id=$2`, boardID, orgID).Scan(&projectID); err != nil {
+		return utils.JSONError(c, fiber.StatusNotFound, "board not found")
 	}
 	var payload struct {
 		Columns []struct {
@@ -171,7 +175,7 @@ func (h *Handler) upsertColumns(c *fiber.Ctx) error {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	if h.cache != nil {
-		h.cache.DeletePrefix(fmt.Sprintf("board:%s:%s:", orgID, boardID))
+		h.cache.DeletePrefix(fmt.Sprintf("board:%s:%s:", orgID, projectID))
 	}
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{"message": "columns configured"})
 }

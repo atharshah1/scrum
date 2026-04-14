@@ -17,6 +17,7 @@ import (
 	"github.com/atharshah1/scrum/scrumX/backend/internal/integrations"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/issues"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/itsm"
+	"github.com/atharshah1/scrum/scrumX/backend/internal/notifications"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/organizations"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/projects"
 	releasemodule "github.com/atharshah1/scrum/scrumX/backend/internal/release"
@@ -62,6 +63,14 @@ func main() {
 	automationEngine := automation.NewEngine(log, automationStore, webhookDispatcher, cfg.AutomationWorkers, issueService, cfg.AutomationMaxRetries, cfg.AutomationBackoff)
 	bus.Subscribe("*", automationEngine.Enqueue)
 
+	notifRepo := notifications.NewRepository(database)
+	notifService := notifications.NewService(notifRepo)
+	bus.Subscribe("issue.created", notifService.HandleEvent)
+	bus.Subscribe("issue.updated", notifService.HandleEvent)
+	bus.Subscribe("issue.comment_created", notifService.HandleEvent)
+	bus.Subscribe("sprint.started", notifService.HandleEvent)
+	bus.Subscribe("sprint.completed", notifService.HandleEvent)
+
 	authService := auth.NewService(database, cfg.JWTSecret, cfg.JWTRefreshSecret)
 	authHandler := auth.NewHandler(authService, cfg.JWTSecret, cfg.JWTRefreshSecret)
 
@@ -104,6 +113,7 @@ func main() {
 	webhooks.NewHandler(webhookDispatcher, bus).RegisterRoutes(secure)
 	integrations.NewHandler().RegisterRoutes(secure)
 	workflows.NewHandler(database, authzService).RegisterRoutes(secure)
+	notifications.NewHandler(notifRepo).RegisterRoutes(secure)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

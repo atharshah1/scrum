@@ -3,6 +3,7 @@ package issues
 import (
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/cache"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
@@ -75,13 +76,14 @@ func (h *Handler) list(c *fiber.Ctx) error {
 		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
 	}
 	filter := ListIssuesFilter{
-		Status:    c.Query("status"),
-		Label:     c.Query("label"),
-		IssueType: c.Query("issue_type"),
-		SortBy:    c.Query("sort_by"),
-		Order:     c.Query("order"),
-		Page:      c.QueryInt("page", 1),
-		Limit:     c.QueryInt("limit", 20),
+		Status:      c.Query("status"),
+		Label:       c.Query("label"),
+		IssueType:   c.Query("issue_type"),
+		SearchQuery: strings.TrimSpace(c.Query("q")),
+		SortBy:      c.Query("sort_by"),
+		Order:       c.Query("order"),
+		Page:        c.QueryInt("page", 1),
+		Limit:       c.QueryInt("limit", 20),
 	}
 	if assignee := c.Query("assignee_id"); assignee != "" {
 		id, err := uuid.Parse(assignee)
@@ -111,9 +113,10 @@ func (h *Handler) list(c *fiber.Ctx) error {
 		}
 		filter.ProjectID = id
 	}
-	cacheKey := fmt.Sprintf("issues:%s:p=%s:s=%s:a=%s:sp=%s:l=%s:t=%s:pa=%s:sb=%s:o=%s:pg=%d:li=%d",
+	cacheKey := fmt.Sprintf("issues:%s:p=%s:s=%s:a=%s:sp=%s:l=%s:t=%s:pa=%s:q=%s:sb=%s:o=%s:pg=%d:li=%d",
 		orgID,
 		filter.ProjectID, filter.Status, filter.AssigneeID, filter.SprintID, filter.Label, filter.IssueType, filter.ParentID,
+		url.QueryEscape(filter.SearchQuery),
 		filter.SortBy, filter.Order, filter.Page, filter.Limit,
 	)
 	if cached, ok := h.cache.Get(cacheKey); ok {

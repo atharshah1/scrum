@@ -50,17 +50,18 @@ type UpdateIssueInput struct {
 }
 
 type ListIssuesFilter struct {
-	ProjectID  uuid.UUID
-	Status     string
-	AssigneeID uuid.UUID
-	SprintID   uuid.UUID
-	Label      string
-	IssueType  string
-	ParentID   uuid.UUID
-	SortBy     string
-	Order      string
-	Page       int
-	Limit      int
+	ProjectID   uuid.UUID
+	Status      string
+	AssigneeID  uuid.UUID
+	SprintID    uuid.UUID
+	Label       string
+	IssueType   string
+	ParentID    uuid.UUID
+	SearchQuery string
+	SortBy      string
+	Order       string
+	Page        int
+	Limit       int
 }
 
 type IssueComment struct {

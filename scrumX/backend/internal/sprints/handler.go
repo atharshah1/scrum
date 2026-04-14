@@ -66,7 +66,7 @@ func (h *Handler) create(c *fiber.Ctx) error {
 	}
 	sprint := fiber.Map{"id": id, "org_id": orgID, "board_id": payload.BoardID, "name": payload.Name, "status": "planned", "start_at": payload.StartAt, "end_at": payload.EndAt}
 	_ = h.bus.Publish(c.Context(), events.New(orgID, "sprint.created", actorID, map[string]any{"sprint": sprint}))
-	h.invalidateProjectCaches(orgID)
+	h.invalidateProjectCaches(orgID, projectID)
 	return utils.JSONSuccess(c, fiber.StatusCreated, sprint)
 }
 
@@ -105,7 +105,7 @@ AND NOT EXISTS (
 		return utils.JSONError(c, fiber.StatusBadRequest, "sprint not found or cannot be started")
 	}
 	_ = h.bus.Publish(c.Context(), events.New(orgID, "sprint.started", actorID, map[string]any{"sprint_id": sprintID}))
-	h.invalidateProjectCaches(orgID)
+	h.invalidateProjectCaches(orgID, projectID)
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{"id": sprintID, "status": "active"})
 }
 
@@ -160,7 +160,7 @@ func (h *Handler) end(c *fiber.Ctx) error {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	_ = h.bus.Publish(c.Context(), events.New(orgID, "sprint.completed", actorID, map[string]any{"sprint_id": sprintID, "next_sprint_id": nextSprintID}))
-	h.invalidateProjectCaches(orgID)
+	h.invalidateProjectCaches(orgID, projectID)
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{"id": sprintID, "status": "completed", "next_sprint_id": nextSprintID})
 }
 
@@ -209,7 +209,7 @@ WHERE org_id=$2 AND project_id=$3 AND deleted_at IS NULL AND id IN (` + strings.
 	for _, issueID := range payload.IssueIDs {
 		_ = h.bus.Publish(c.Context(), events.New(orgID, "issue.moved_to_sprint", actorID, map[string]any{"issue_id": issueID, "sprint_id": sprintID}))
 	}
-	h.invalidateProjectCaches(orgID)
+	h.invalidateProjectCaches(orgID, projectID)
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{"sprint_id": sprintID, "updated_issues": len(payload.IssueIDs)})
 }
 
@@ -223,10 +223,11 @@ func itoa(v int) string {
 	return strconv.Itoa(v)
 }
 
-func (h *Handler) invalidateProjectCaches(orgID uuid.UUID) {
+func (h *Handler) invalidateProjectCaches(orgID, projectID uuid.UUID) {
 	if h.cache == nil {
 		return
 	}
-	h.cache.DeletePrefix("board:" + orgID.String() + ":")
-	h.cache.DeletePrefix("issues:" + orgID.String() + ":")
+	h.cache.DeletePrefix("board:" + orgID.String() + ":" + projectID.String() + ":")
+	h.cache.DeletePrefix("issues:" + orgID.String() + ":p=" + projectID.String() + ":")
+	h.cache.DeletePrefix("issues:" + orgID.String() + ":p=" + uuid.Nil.String() + ":")
 }

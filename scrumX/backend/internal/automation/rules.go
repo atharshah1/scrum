@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/atharshah1/scrum/scrumX/backend/internal/events"
 	"github.com/google/uuid"
 )
 
@@ -122,6 +123,17 @@ func (s *Store) RecordExecution(ctx context.Context, orgID, ruleID uuid.UUID, ev
 	raw, _ := json.Marshal(result)
 	_, _ = s.db.ExecContext(ctx, `INSERT INTO automation_executions (id, org_id, rule_id, event_type, status, result) VALUES ($1,$2,$3,$4,$5,$6)`,
 		uuid.New(), orgID, ruleID, eventType, status, raw)
+}
+
+// PersistDeadLetter records an automation action that exhausted all retry attempts so
+// it can be inspected and replayed later without restarting the process.
+func (s *Store) PersistDeadLetter(ctx context.Context, orgID, ruleID uuid.UUID, event events.Event, action Action, attempts int, errMsg string) {
+	eventRaw, _ := json.Marshal(event.Payload)
+	paramsRaw, _ := json.Marshal(action.Params)
+	_, _ = s.db.ExecContext(ctx, `INSERT INTO automation_dead_letters
+		(org_id, rule_id, event_payload, action_type, action_params, error_message, attempts)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		orgID, ruleID, eventRaw, action.Type, paramsRaw, errMsg, attempts)
 }
 
 func decodeRuleField(field string, ruleID uuid.UUID, raw []byte, target any) error {

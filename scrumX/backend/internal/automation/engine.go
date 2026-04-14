@@ -11,6 +11,12 @@ import (
 	"github.com/google/uuid"
 )
 
+type storeWriter interface {
+	Matching(ctx context.Context, orgID uuid.UUID, trigger string) ([]Rule, error)
+	RecordExecution(ctx context.Context, orgID, ruleID uuid.UUID, eventType, status string, result map[string]any)
+	PersistDeadLetter(ctx context.Context, orgID, ruleID uuid.UUID, event events.Event, action Action, attempts int, errMsg string)
+}
+
 type issueMutator interface {
 	ApplyAutomationUpdate(ctx context.Context, orgID, issueID uuid.UUID, status string, assigneeID *uuid.UUID) error
 }
@@ -21,7 +27,7 @@ type webhookCaller interface {
 
 type Engine struct {
 	log         *slog.Logger
-	store       *Store
+	store       storeWriter
 	queue       chan events.Event
 	webhook     webhookCaller
 	workerCount int
@@ -30,7 +36,7 @@ type Engine struct {
 	backoff     time.Duration
 }
 
-func NewEngine(log *slog.Logger, store *Store, webhook webhookCaller, workers int, issues issueMutator, maxRetries int, backoff time.Duration) *Engine {
+func NewEngine(log *slog.Logger, store storeWriter, webhook webhookCaller, workers int, issues issueMutator, maxRetries int, backoff time.Duration) *Engine {
 	if workers <= 0 {
 		workers = 1
 	}
@@ -81,7 +87,7 @@ func (e *Engine) execute(ctx context.Context, event events.Event) {
 		}
 		status := "success"
 		for _, action := range rule.Actions {
-			if err := e.executeActionWithRetry(ctx, action, event); err != nil {
+			if err := e.executeActionWithRetry(ctx, rule.ID, action, event); err != nil {
 				status = "failed"
 				e.log.Warn("automation_action_failed", "error", err, "type", action.Type)
 			}
@@ -120,7 +126,7 @@ func (e *Engine) conditionsMet(rule Rule, event events.Event) bool {
 	return true
 }
 
-func (e *Engine) executeActionWithRetry(ctx context.Context, action Action, event events.Event) error {
+func (e *Engine) executeActionWithRetry(ctx context.Context, ruleID uuid.UUID, action Action, event events.Event) error {
 	var err error
 	for attempt := 0; attempt <= e.maxRetries; attempt++ {
 		err = e.executeAction(ctx, action, event)
@@ -140,6 +146,8 @@ func (e *Engine) executeActionWithRetry(ctx context.Context, action Action, even
 		case <-timer.C:
 		}
 	}
+	// All retries exhausted – persist for later inspection / replay.
+	e.store.PersistDeadLetter(ctx, event.OrgID, ruleID, event, action, e.maxRetries+1, err.Error())
 	return err
 }
 

@@ -57,7 +57,7 @@ func (s *Service) Register(ctx context.Context, email, password string) (User, T
 	orgID := uuid.New()
 	userID := uuid.New()
 	localPart, _, _ := strings.Cut(email, "@")
-	orgSlug := fmt.Sprintf("%s-%s", slugify(localPart), orgID.String()[:8])
+	orgSlug := fmt.Sprintf("%s-%s", slugify(localPart), strings.ReplaceAll(orgID.String()[:13], "-", ""))
 	if _, err = tx.ExecContext(ctx, `INSERT INTO organizations (id, name, slug) VALUES ($1,$2,$3)`, orgID, orgSlug, orgSlug); err != nil {
 		return User{}, TokenPair{}, err
 	}
