@@ -106,23 +106,26 @@ func (h *Handler) getBoard(c *fiber.Ctx) error {
 		normalizedSprint = sprintID.String()
 	}
 	cacheKey := fmt.Sprintf("board:%s:%s:%s:%d:%d:%s", orgID, projectID, boardID, page, limit, normalizedSprint)
-	if cached, ok := h.cache.Get(cacheKey); ok {
-		return utils.JSONSuccess(c, fiber.StatusOK, cached)
-	}
-	boardIssues, err := h.loadBoardIssues(c, orgID, projectID, collectBoardStatuses(columns), sprintID, limit, offset)
+	resp, err := h.cache.GetOrLoad(cacheKey, func() (any, error) {
+		boardIssues, loadErr := h.loadBoardIssues(c, orgID, projectID, collectBoardStatuses(columns), sprintID, limit, offset)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		loadedColumns := make([]boardColumn, len(columns))
+		copy(loadedColumns, columns)
+		for i := range loadedColumns {
+			loadedColumns[i].Issues = filterBoardIssuesByStatuses(boardIssues, loadedColumns[i].Statuses)
+		}
+		return fiber.Map{
+			"board_id":   boardID,
+			"project_id": projectID,
+			"columns":    loadedColumns,
+			"meta":       fiber.Map{"page": page, "limit": limit},
+		}, nil
+	})
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	for i := range columns {
-		columns[i].Issues = filterBoardIssuesByStatuses(boardIssues, columns[i].Statuses)
-	}
-	resp := fiber.Map{
-		"board_id":   boardID,
-		"project_id": projectID,
-		"columns":    columns,
-		"meta":       fiber.Map{"page": page, "limit": limit},
-	}
-	h.cache.Set(cacheKey, resp)
 	return utils.JSONSuccess(c, fiber.StatusOK, resp)
 }
 

@@ -41,7 +41,7 @@ func main() {
 	}
 	defer sharedCache.Close()
 
-	workerBus := events.NewBus(log, events.NewInternalBus(), nil)
+	workerBus := events.NewBus(log, events.NewInternalBus(), nil, nil)
 	authzService := authz.NewService(database)
 	issueService := issues.NewService(issues.NewRepository(database), workerBus, authzService, sharedCache)
 	webhookDispatcher := webhooks.NewDispatcher(log, workerBus, cfg.WebhookTimeout, database)

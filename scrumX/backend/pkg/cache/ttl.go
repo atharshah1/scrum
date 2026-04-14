@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sync/singleflight"
 )
 
 type item struct {
@@ -21,6 +22,7 @@ type TTLCache struct {
 	ttl    time.Duration
 	redis  *redis.Client
 	remote bool
+	sf     singleflight.Group
 }
 
 func NewTTLCache(ttl time.Duration) *TTLCache {
@@ -133,4 +135,32 @@ func (c *TTLCache) Close() error {
 		return nil
 	}
 	return c.redis.Close()
+}
+
+func (c *TTLCache) RedisClient() *redis.Client {
+	if c == nil {
+		return nil
+	}
+	return c.redis
+}
+
+func (c *TTLCache) GetOrLoad(key string, loader func() (any, error)) (any, error) {
+	if cached, ok := c.Get(key); ok {
+		return cached, nil
+	}
+	value, err, _ := c.sf.Do(key, func() (any, error) {
+		if cached, ok := c.Get(key); ok {
+			return cached, nil
+		}
+		loaded, loadErr := loader()
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		c.Set(key, loaded)
+		return loaded, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return value, nil
 }

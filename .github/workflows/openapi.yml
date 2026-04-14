@@ -1,0 +1,19 @@
+name: OpenAPI Spec
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  publish-openapi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure OpenAPI spec exists
+        run: test -s scrumX/backend/internal/apidocs/openapi.yaml
+      - name: Upload OpenAPI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrumx-openapi
+          path: scrumX/backend/internal/apidocs/openapi.yaml

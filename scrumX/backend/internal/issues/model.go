@@ -2,10 +2,13 @@ package issues
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+var ErrOptimisticLockConflict = errors.New("optimistic lock conflict")
 
 type Issue struct {
 	ID          uuid.UUID  `json:"id"`
@@ -47,6 +50,7 @@ type UpdateIssueInput struct {
 	Priority    *string    `json:"priority"`
 	IssueType   *string    `json:"issue_type"`
 	Labels      []string   `json:"labels"`
+	UpdatedAt   *time.Time `json:"updated_at"`
 }
 
 type ListIssuesFilter struct {

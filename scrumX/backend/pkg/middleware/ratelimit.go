@@ -1,11 +1,14 @@
 package middleware
 
 import (
+	"context"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 type rateLimitEntry struct {
@@ -13,19 +16,16 @@ type rateLimitEntry struct {
 	resetAt time.Time
 }
 
-func RateLimitMiddleware(limit int, window time.Duration) fiber.Handler {
+func RateLimitMiddleware(limit int, window time.Duration, redisClient *redis.Client) fiber.Handler {
 	var (
 		mu          sync.Mutex
 		entries     = map[string]rateLimitEntry{}
 		nextCleanup time.Time
 	)
-	return func(c *fiber.Ctx) error {
-		if limit <= 0 || window <= 0 {
-			return c.Next()
-		}
-		key := c.IP() + ":" + c.Route().Path
-		now := time.Now()
+
+	localEval := func(key string, now time.Time) (count int, resetAt time.Time) {
 		mu.Lock()
+		defer mu.Unlock()
 		if nextCleanup.IsZero() || !now.Before(nextCleanup) {
 			for existingKey, existingEntry := range entries {
 				if !now.Before(existingEntry.resetAt) {
@@ -40,9 +40,42 @@ func RateLimitMiddleware(limit int, window time.Duration) fiber.Handler {
 		}
 		entry.count++
 		entries[key] = entry
-		remaining := limit - entry.count
-		resetAt := entry.resetAt
-		mu.Unlock()
+		return entry.count, entry.resetAt
+	}
+
+	redisEval := func(key string, now time.Time) (count int, resetAt time.Time, ok bool) {
+		if redisClient == nil {
+			return 0, time.Time{}, false
+		}
+		windowSeconds := int(window.Seconds())
+		if windowSeconds <= 0 {
+			return 0, time.Time{}, false
+		}
+		windowBucket := now.Unix() / int64(windowSeconds)
+		redisKey := fmt.Sprintf("rate_limit:%d:%s", windowBucket, key)
+		ctx := context.Background()
+		total, err := redisClient.Incr(ctx, redisKey).Result()
+		if err != nil {
+			return 0, time.Time{}, false
+		}
+		if total == 1 {
+			_ = redisClient.Expire(ctx, redisKey, window).Err()
+		}
+		resetUnix := (windowBucket + 1) * int64(windowSeconds)
+		return int(total), time.Unix(resetUnix, 0).UTC(), true
+	}
+
+	return func(c *fiber.Ctx) error {
+		if limit <= 0 || window <= 0 {
+			return c.Next()
+		}
+		key := c.IP() + ":" + c.Route().Path
+		now := time.Now()
+		count, resetAt, remote := redisEval(key, now)
+		if !remote {
+			count, resetAt = localEval(key, now)
+		}
+		remaining := limit - count
 
 		c.Set("X-RateLimit-Limit", itoa(limit))
 		if remaining < 0 {
@@ -50,7 +83,7 @@ func RateLimitMiddleware(limit int, window time.Duration) fiber.Handler {
 		}
 		c.Set("X-RateLimit-Remaining", itoa(remaining))
 		c.Set("X-RateLimit-Reset", itoa(int(resetAt.Unix())))
-		if entry.count > limit {
+		if count > limit {
 			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 				"success": false,
 				"error": fiber.Map{"message": "rate limit exceeded"},

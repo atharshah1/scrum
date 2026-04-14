@@ -239,11 +239,18 @@ func (r *Repository) Update(ctx context.Context, orgID, issueID uuid.UUID, input
 	args = append(args, issueID, orgID)
 	query := `UPDATE issues SET ` + strings.Join(setParts, ", ") + ` WHERE id = $` + itoa(argN) + ` AND org_id = $` + itoa(argN+1)
 	query += ` AND deleted_at IS NULL`
+	if input.UpdatedAt != nil {
+		args = append(args, *input.UpdatedAt)
+		query += ` AND updated_at = $` + itoa(argN+2)
+	}
 	result, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return Issue{}, err
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
+		if input.UpdatedAt != nil {
+			return Issue{}, ErrOptimisticLockConflict
+		}
 		return Issue{}, errors.New("issue not found")
 	}
 	if input.Labels != nil {

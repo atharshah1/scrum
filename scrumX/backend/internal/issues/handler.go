@@ -1,6 +1,7 @@
 package issues
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -173,19 +174,20 @@ func (h *Handler) list(c *fiber.Ctx) error {
 		url.QueryEscape(filter.SearchQuery),
 		filter.SortBy, filter.Order, filter.Page, filter.Limit,
 	)
-	if cached, ok := h.cache.Get(cacheKey); ok {
-		return c.Status(fiber.StatusOK).JSON(cached)
-	}
-	items, total, err := h.service.List(c.Context(), orgID, filter)
+	payload, err := h.cache.GetOrLoad(cacheKey, func() (any, error) {
+		items, total, listErr := h.service.List(c.Context(), orgID, filter)
+		if listErr != nil {
+			return nil, listErr
+		}
+		return fiber.Map{
+			"success": true,
+			"data":    items,
+			"meta":    fiber.Map{"page": filter.Page, "limit": filter.Limit, "total": total},
+		}, nil
+	})
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	payload := fiber.Map{
-		"success": true,
-		"data":    items,
-		"meta":    fiber.Map{"page": filter.Page, "limit": filter.Limit, "total": total},
-	}
-	h.cache.Set(cacheKey, payload)
 	return c.Status(fiber.StatusOK).JSON(payload)
 }
 
@@ -262,6 +264,9 @@ func (h *Handler) update(c *fiber.Ctx) error {
 	}
 	issue, err := h.service.Update(c.Context(), orgID, actorID, issueID, input)
 	if err != nil {
+		if errors.Is(err, ErrOptimisticLockConflict) {
+			return utils.JSONError(c, fiber.StatusConflict, err.Error())
+		}
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
 	return utils.JSONSuccess(c, fiber.StatusOK, issue)

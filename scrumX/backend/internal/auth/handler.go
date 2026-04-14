@@ -6,21 +6,23 @@ import (
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/utils"
 	"github.com/gofiber/fiber/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 type Handler struct {
 	service       *Service
 	accessSecret  string
 	refreshSecret string
+	redisClient   *redis.Client
 }
 
-func NewHandler(service *Service, accessSecret, refreshSecret string) *Handler {
-	return &Handler{service: service, accessSecret: accessSecret, refreshSecret: refreshSecret}
+func NewHandler(service *Service, accessSecret, refreshSecret string, redisClient *redis.Client) *Handler {
+	return &Handler{service: service, accessSecret: accessSecret, refreshSecret: refreshSecret, redisClient: redisClient}
 }
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
 	auth := api.Group("/auth")
-	auth.Use(middleware.RateLimitMiddleware(20, time.Minute))
+	auth.Use(middleware.RateLimitMiddleware(20, time.Minute, h.redisClient))
 	auth.Post("/register", h.register)
 	auth.Post("/login", h.login)
 	auth.Post("/refresh", h.refresh)

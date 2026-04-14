@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/atharshah1/scrum/scrumX/backend/configs"
+	"github.com/atharshah1/scrum/scrumX/backend/internal/apidocs"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/auth"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/authz"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/automation"
@@ -48,13 +49,16 @@ func main() {
 
 	internalBus := events.NewInternalBus()
 	var kafkaPublisher *events.KafkaEventPublisher
+	var outboxStore *events.OutboxStore
 	if cfg.KafkaEnabled {
 		kafkaPublisher = events.NewKafkaEventPublisher(cfg.KafkaBrokers, cfg.AutomationKafkaTopic, cfg.KafkaBatchTimeout)
 		if kafkaPublisher == nil {
 			log.Warn("kafka_enabled_but_not_configured", "brokers", cfg.KafkaBrokers, "topic", cfg.AutomationKafkaTopic)
+		} else {
+			outboxStore = events.NewOutboxStore(database)
 		}
 	}
-	bus := events.NewBus(log, internalBus, kafkaPublisher)
+	bus := events.NewBus(log, internalBus, kafkaPublisher, outboxStore)
 	if kafkaPublisher != nil {
 		defer kafkaPublisher.Close()
 	}
@@ -88,13 +92,17 @@ func main() {
 	bus.Subscribe("sprint.completed", notifService.HandleEvent)
 
 	authService := auth.NewService(database, cfg.JWTSecret, cfg.JWTRefreshSecret)
-	authHandler := auth.NewHandler(authService, cfg.JWTSecret, cfg.JWTRefreshSecret)
+	authHandler := auth.NewHandler(authService, cfg.JWTSecret, cfg.JWTRefreshSecret, sharedCache.RedisClient())
 
 	app := fiber.New(fiber.Config{BodyLimit: 1024 * 1024})
 	app.Use(middleware.LoggingMiddleware(log))
 	app.Use(middleware.MetricsMiddleware(metrics))
 
 	app.Get("/health", func(c *fiber.Ctx) error { return c.JSON(fiber.Map{"status": "ok"}) })
+	app.Get("/openapi.yaml", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "application/yaml")
+		return c.Send(apidocs.OpenAPI)
+	})
 	app.Get("/health/ready", func(c *fiber.Ctx) error {
 		if cfg.KafkaEnabled && kafkaPublisher != nil {
 			ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
@@ -135,7 +143,7 @@ func main() {
 	api := app.Group("/api/v1")
 	authHandler.RegisterRoutes(api)
 
-	secure := api.Group("", middleware.RateLimitMiddleware(300, time.Minute), middleware.AuthMiddleware(cfg.JWTSecret), middleware.OrgContextMiddleware())
+	secure := api.Group("", middleware.RateLimitMiddleware(300, time.Minute, sharedCache.RedisClient()), middleware.AuthMiddleware(cfg.JWTSecret), middleware.OrgContextMiddleware())
 	secure.Use(middleware.RBACMiddleware("Admin", "Member", "Viewer"))
 	secure.Use(middleware.AuditMiddleware(database))
 
@@ -156,6 +164,10 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if cfg.KafkaEnabled && kafkaPublisher != nil && outboxStore != nil {
+		dispatcher := events.NewOutboxDispatcher(log, outboxStore, kafkaPublisher, 100, 500*time.Millisecond, 5, 250*time.Millisecond)
+		go dispatcher.Start(ctx)
+	}
 	if !cfg.KafkaEnabled {
 		automationEngine.Start(ctx)
 	}
