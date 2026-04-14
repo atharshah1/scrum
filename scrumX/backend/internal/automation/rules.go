@@ -2,7 +2,9 @@ package automation
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
@@ -134,6 +136,51 @@ func (s *Store) PersistDeadLetter(ctx context.Context, orgID, ruleID uuid.UUID, 
 		(org_id, rule_id, event_payload, action_type, action_params, error_message, attempts)
 		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 		orgID, ruleID, eventRaw, action.Type, paramsRaw, errMsg, attempts)
+}
+
+func actionFingerprint(action Action) string {
+	raw, _ := json.Marshal(map[string]any{
+		"type":   action.Type,
+		"params": action.Params,
+	})
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+// TryStartActionExecution creates a durable idempotency row for an action execution.
+// Returns true only for the first processor that acquires this event/rule/action tuple.
+func (s *Store) TryStartActionExecution(ctx context.Context, orgID, ruleID, eventID uuid.UUID, action Action) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `INSERT INTO automation_action_executions
+		(org_id, rule_id, event_id, action_fingerprint, status, attempts)
+		VALUES ($1,$2,$3,$4,'processing',0)
+		ON CONFLICT (org_id, rule_id, event_id, action_fingerprint) DO NOTHING`,
+		orgID, ruleID, eventID, actionFingerprint(action))
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected == 1, nil
+}
+
+// RecordActionAttempt increments durable attempt metadata and updates terminal status.
+func (s *Store) RecordActionAttempt(ctx context.Context, orgID, ruleID, eventID uuid.UUID, action Action, errMsg string, terminal bool) {
+	status := "processing"
+	lastError := any(nil)
+	if errMsg != "" {
+		lastError = errMsg
+		if terminal {
+			status = "failed"
+		}
+	} else {
+		status = "success"
+	}
+	_, _ = s.db.ExecContext(ctx, `UPDATE automation_action_executions
+		SET attempts = attempts + 1, status = $5, last_error = $6, updated_at = NOW()
+		WHERE org_id=$1 AND rule_id=$2 AND event_id=$3 AND action_fingerprint=$4`,
+		orgID, ruleID, eventID, actionFingerprint(action), status, lastError)
 }
 
 func decodeRuleField(field string, ruleID uuid.UUID, raw []byte, target any) error {

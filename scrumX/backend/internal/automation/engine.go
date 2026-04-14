@@ -15,6 +15,8 @@ type storeWriter interface {
 	Matching(ctx context.Context, orgID uuid.UUID, trigger string) ([]Rule, error)
 	RecordExecution(ctx context.Context, orgID, ruleID uuid.UUID, eventType, status string, result map[string]any)
 	PersistDeadLetter(ctx context.Context, orgID, ruleID uuid.UUID, event events.Event, action Action, attempts int, errMsg string)
+	TryStartActionExecution(ctx context.Context, orgID, ruleID, eventID uuid.UUID, action Action) (bool, error)
+	RecordActionAttempt(ctx context.Context, orgID, ruleID, eventID uuid.UUID, action Action, errMsg string, terminal bool)
 }
 
 type issueMutator interface {
@@ -87,6 +89,19 @@ func (e *Engine) execute(ctx context.Context, event events.Event) {
 		}
 		status := "success"
 		for _, action := range rule.Actions {
+			acquired, err := e.store.TryStartActionExecution(ctx, event.OrgID, rule.ID, event.ID, action)
+			if err != nil {
+				status = "failed"
+				e.log.Warn("automation_dedup_persist_failed", "error", err, "rule_id", rule.ID, "event_id", event.ID)
+				continue
+			}
+			if !acquired {
+				e.store.RecordExecution(ctx, event.OrgID, rule.ID, event.Type, "skipped", map[string]any{
+					"reason":   "duplicate_action_execution",
+					"event_id": event.ID.String(),
+				})
+				continue
+			}
 			if err := e.executeActionWithRetry(ctx, rule.ID, action, event); err != nil {
 				status = "failed"
 				e.log.Warn("automation_action_failed", "error", err, "type", action.Type)
@@ -131,8 +146,10 @@ func (e *Engine) executeActionWithRetry(ctx context.Context, ruleID uuid.UUID, a
 	for attempt := 0; attempt <= e.maxRetries; attempt++ {
 		err = e.executeAction(ctx, action, event)
 		if err == nil {
+			e.store.RecordActionAttempt(ctx, event.OrgID, ruleID, event.ID, action, "", true)
 			return nil
 		}
+		e.store.RecordActionAttempt(ctx, event.OrgID, ruleID, event.ID, action, err.Error(), attempt == e.maxRetries)
 		if attempt == e.maxRetries {
 			break
 		}

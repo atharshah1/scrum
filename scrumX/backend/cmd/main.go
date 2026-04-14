@@ -47,7 +47,17 @@ func main() {
 	defer database.Close()
 
 	internalBus := events.NewInternalBus()
-	bus := events.NewBus(log, internalBus, nil)
+	var kafkaPublisher *events.KafkaEventPublisher
+	if cfg.KafkaEnabled {
+		kafkaPublisher = events.NewKafkaEventPublisher(cfg.KafkaBrokers, cfg.AutomationKafkaTopic)
+		if kafkaPublisher == nil {
+			log.Warn("kafka_enabled_but_not_configured", "brokers", cfg.KafkaBrokers, "topic", cfg.AutomationKafkaTopic)
+		}
+	}
+	bus := events.NewBus(log, internalBus, kafkaPublisher)
+	if kafkaPublisher != nil {
+		defer kafkaPublisher.Close()
+	}
 	wsHub := events.NewWebsocketHub(log, cfg.WebsocketBufferSize)
 	bus.Subscribe("*", wsHub.Broadcast)
 
@@ -61,7 +71,9 @@ func main() {
 	webhookDispatcher := webhooks.NewDispatcher(log, bus, cfg.WebhookTimeout, database)
 	automationStore := automation.NewStore(database)
 	automationEngine := automation.NewEngine(log, automationStore, webhookDispatcher, cfg.AutomationWorkers, issueService, cfg.AutomationMaxRetries, cfg.AutomationBackoff)
-	bus.Subscribe("*", automationEngine.Enqueue)
+	if !cfg.KafkaEnabled {
+		bus.Subscribe("*", automationEngine.Enqueue)
+	}
 
 	notifRepo := notifications.NewRepository(database)
 	notifService := notifications.NewService(notifRepo)
@@ -117,7 +129,9 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	automationEngine.Start(ctx)
+	if !cfg.KafkaEnabled {
+		automationEngine.Start(ctx)
+	}
 
 	go func() {
 		if err := app.Listen(":" + cfg.Port); err != nil {
