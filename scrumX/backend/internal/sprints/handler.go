@@ -3,6 +3,8 @@ package sprints
 import (
 	"context"
 	"database/sql"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/atharshah1/scrum/scrumX/backend/internal/authz"
@@ -18,8 +20,6 @@ type Handler struct {
 	bus   events.Publisher
 	authz *authz.Service
 }
-
-var terminalIssueStatuses = []string{"done", "closed", "resolved"}
 
 func NewHandler(db *sql.DB, bus events.Publisher, authzService *authz.Service) *Handler {
 	return &Handler{db: db, bus: bus, authz: authzService}
@@ -141,14 +141,14 @@ func (h *Handler) end(c *fiber.Ctx) error {
 	err = tx.QueryRowContext(c.Context(), `SELECT id FROM sprints WHERE org_id=$1 AND board_id=$2 AND status='planned' ORDER BY COALESCE(start_at, end_at, NOW()) ASC, id ASC LIMIT 1`, orgID, boardID).Scan(&nextSprintID)
 	if err == nil {
 		// Carry forward all incomplete issues to the next planned sprint.
-		if _, err := tx.ExecContext(c.Context(), `UPDATE issues SET sprint_id=$1, updated_at=NOW() WHERE org_id=$2 AND sprint_id=$3 AND deleted_at IS NULL AND status <> ALL($4::text[])`, nextSprintID, orgID, sprintID, terminalIssueStatuses); err != nil {
+		if _, err := tx.ExecContext(c.Context(), `UPDATE issues SET sprint_id=$1, updated_at=NOW() WHERE org_id=$2 AND sprint_id=$3 AND deleted_at IS NULL AND status NOT IN ('done','closed','resolved')`, nextSprintID, orgID, sprintID); err != nil {
 			return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 		}
 	} else if err != sql.ErrNoRows {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	} else {
 		// If no next sprint exists, incomplete issues move back to backlog (NULL sprint_id).
-		if _, err := tx.ExecContext(c.Context(), `UPDATE issues SET sprint_id=NULL, updated_at=NOW() WHERE org_id=$1 AND sprint_id=$2 AND deleted_at IS NULL AND status <> ALL($3::text[])`, orgID, sprintID, terminalIssueStatuses); err != nil {
+		if _, err := tx.ExecContext(c.Context(), `UPDATE issues SET sprint_id=NULL, updated_at=NOW() WHERE org_id=$1 AND sprint_id=$2 AND deleted_at IS NULL AND status NOT IN ('done','closed','resolved')`, orgID, sprintID); err != nil {
 			return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 		}
 	}
@@ -190,10 +190,18 @@ func (h *Handler) addIssues(c *fiber.Ctx) error {
 	if err := c.BodyParser(&payload); err != nil || len(payload.IssueIDs) == 0 {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
+	placeholders := make([]string, 0, len(payload.IssueIDs))
+	args := []any{sprintID, orgID, projectID}
+	for i, issueID := range payload.IssueIDs {
+		args = append(args, issueID)
+		placeholders = append(placeholders, "$"+itoa(i+4))
+	}
+	query := `UPDATE issues SET sprint_id=$1, updated_at=NOW()
+WHERE org_id=$2 AND project_id=$3 AND deleted_at IS NULL AND id IN (` + strings.Join(placeholders, ",") + `)`
+	if _, err := h.db.ExecContext(c.Context(), query, args...); err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
 	for _, issueID := range payload.IssueIDs {
-		if _, err := h.db.ExecContext(c.Context(), `UPDATE issues SET sprint_id=$1, updated_at=NOW() WHERE id=$2 AND org_id=$3 AND project_id=$4 AND deleted_at IS NULL`, sprintID, issueID, orgID, projectID); err != nil {
-			return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
-		}
 		_ = h.bus.Publish(c.Context(), events.New(orgID, "issue.moved_to_sprint", actorID, map[string]any{"issue_id": issueID, "sprint_id": sprintID}))
 	}
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{"sprint_id": sprintID, "updated_issues": len(payload.IssueIDs)})
@@ -203,4 +211,8 @@ func (h *Handler) projectIDBySprint(ctx context.Context, orgID, sprintID uuid.UU
 	var projectID uuid.UUID
 	err := h.db.QueryRowContext(ctx, `SELECT b.project_id FROM sprints s JOIN boards b ON b.id=s.board_id WHERE s.id=$1 AND s.org_id=$2 AND b.org_id=$2`, sprintID, orgID).Scan(&projectID)
 	return projectID, err
+}
+
+func itoa(v int) string {
+	return strconv.Itoa(v)
 }

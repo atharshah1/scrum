@@ -63,7 +63,9 @@ func (h *Handler) getBoard(c *fiber.Ctx) error {
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusForbidden, "forbidden")
 	}
-	_ = role
+	if role == "" {
+		return utils.JSONError(c, fiber.StatusForbidden, "forbidden")
+	}
 
 	columns := []boardColumn{}
 	rows, err := h.db.QueryContext(c.Context(), `SELECT id, name, statuses, position FROM board_columns WHERE org_id=$1 AND board_id=$2 ORDER BY position ASC`, orgID, boardID)
@@ -101,7 +103,11 @@ func (h *Handler) getBoard(c *fiber.Ctx) error {
 		}
 		sprintID = &id
 	}
-	cacheKey := fmt.Sprintf("board:%s:%s:%d:%d:%s", orgID, boardID, page, limit, c.Query("sprint_id"))
+	normalizedSprint := "none"
+	if sprintID != nil {
+		normalizedSprint = sprintID.String()
+	}
+	cacheKey := fmt.Sprintf("board:%s:%s:%d:%d:%s", orgID, boardID, page, limit, normalizedSprint)
 	if cached, ok := h.cache.Get(cacheKey); ok {
 		return utils.JSONSuccess(c, fiber.StatusOK, cached)
 	}

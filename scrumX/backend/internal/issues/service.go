@@ -330,9 +330,15 @@ func (s *Service) requireWriteProject(ctx context.Context, orgID, actorID, proje
 }
 
 func applyTransitionRule(input *UpdateIssueInput, current Issue, actorID uuid.UUID, rule WorkflowTransitionRule) error {
-	if assigneeOnly, _ := rule.Conditions["assignee_only"].(bool); assigneeOnly {
-		if current.AssigneeID == nil || *current.AssigneeID != actorID {
-			return errors.New("only assignee can perform this transition")
+	if raw, exists := rule.Conditions["assignee_only"]; exists {
+		assigneeOnly, ok := raw.(bool)
+		if !ok {
+			return errors.New("invalid transition condition: assignee_only must be boolean")
+		}
+		if assigneeOnly {
+			if current.AssigneeID == nil || *current.AssigneeID != actorID {
+				return errors.New("only assignee can perform this transition")
+			}
 		}
 	}
 	if reqRaw, ok := rule.Validators["required_fields"]; ok {
@@ -345,6 +351,8 @@ func applyTransitionRule(input *UpdateIssueInput, current Issue, actorID uuid.UU
 					if current.AssigneeID == nil && (input.AssigneeID == nil || *input.AssigneeID == uuid.Nil) {
 						return fmt.Errorf("validator failed: %s is required", field)
 					}
+				default:
+					return fmt.Errorf("unsupported validator field: %s", field)
 				}
 			}
 		}

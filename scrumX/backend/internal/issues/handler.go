@@ -112,7 +112,11 @@ func (h *Handler) list(c *fiber.Ctx) error {
 		}
 		filter.ProjectID = id
 	}
-	cacheKey := fmt.Sprintf("issues:%s:%s", orgID, c.Request().URI().QueryString())
+	cacheKey := fmt.Sprintf("issues:%s:p=%s:s=%s:a=%s:sp=%s:l=%s:t=%s:pa=%s:sb=%s:o=%s:pg=%d:li=%d",
+		orgID,
+		filter.ProjectID, filter.Status, filter.AssigneeID, filter.SprintID, filter.Label, filter.IssueType, filter.ParentID,
+		filter.SortBy, filter.Order, filter.Page, filter.Limit,
+	)
 	if cached, ok := h.cache.Get(cacheKey); ok {
 		return utils.JSONSuccess(c, fiber.StatusOK, cached)
 	}

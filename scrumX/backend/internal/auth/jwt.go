@@ -65,10 +65,8 @@ type RefreshClaims struct {
 }
 
 func ParseRefreshClaims(refreshToken, secret string) (RefreshClaims, error) {
-	token, err := jwt.Parse(refreshToken, func(token *jwt.Token) (interface{}, error) {
-		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-			return nil, errors.New("unexpected signing method")
-		}
+	parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+	token, err := parser.Parse(refreshToken, func(token *jwt.Token) (interface{}, error) {
 		return []byte(secret), nil
 	})
 	if err != nil || !token.Valid {

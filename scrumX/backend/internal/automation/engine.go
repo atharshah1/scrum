@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/atharshah1/scrum/scrumX/backend/internal/events"
+	"github.com/google/uuid"
 )
 
 type issueMutator interface {
@@ -120,7 +121,10 @@ func (e *Engine) executeAction(ctx context.Context, action Action, event events.
 		return nil
 	}
 	if e.db != nil && (action.Type == "update issue" || action.Type == "assign issue") {
-		issueID, _ := action.Params["issue_id"].(string)
+		issueID, ok := action.Params["issue_id"].(string)
+		if !ok && action.Params["issue_id"] != nil {
+			e.log.Warn("automation_invalid_param", "param", "issue_id", "action", action.Type)
+		}
 		if issueID == "" {
 			if fromPayload, ok := event.Payload["issue_id"].(string); ok {
 				issueID = fromPayload
@@ -129,17 +133,28 @@ func (e *Engine) executeAction(ctx context.Context, action Action, event events.
 		if issueID == "" {
 			return nil
 		}
-		status, _ := action.Params["status"].(string)
-		assigneeID, _ := action.Params["assignee_id"].(string)
+		issueUUID, err := uuid.Parse(issueID)
+		if err != nil {
+			e.log.Warn("automation_invalid_param", "param", "issue_id", "value", issueID)
+			return nil
+		}
+		status, ok := action.Params["status"].(string)
+		if !ok && action.Params["status"] != nil {
+			e.log.Warn("automation_invalid_param", "param", "status", "action", action.Type)
+		}
+		assigneeID, ok := action.Params["assignee_id"].(string)
+		if !ok && action.Params["assignee_id"] != nil {
+			e.log.Warn("automation_invalid_param", "param", "assignee_id", "action", action.Type)
+		}
 		if status != "" {
 			if _, err := e.db.ExecContext(ctx, `UPDATE issues SET status=$1, updated_at=NOW() WHERE id=$2 AND org_id=$3 AND deleted_at IS NULL`,
-				strings.ToLower(strings.TrimSpace(status)), issueID, event.OrgID); err != nil {
+				strings.ToLower(strings.TrimSpace(status)), issueUUID, event.OrgID); err != nil {
 				return err
 			}
 		}
 		if assigneeID != "" {
 			if _, err := e.db.ExecContext(ctx, `UPDATE issues SET assignee_id=$1, updated_at=NOW() WHERE id=$2 AND org_id=$3 AND deleted_at IS NULL`,
-				assigneeID, issueID, event.OrgID); err != nil {
+				assigneeID, issueUUID, event.OrgID); err != nil {
 				return err
 			}
 		}

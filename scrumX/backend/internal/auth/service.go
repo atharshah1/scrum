@@ -33,8 +33,8 @@ func NewService(db *sql.DB, accessSecret, refreshSecret string) *Service {
 func (s *Service) Register(ctx context.Context, email, password string) (User, TokenPair, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	password = strings.TrimSpace(password)
-	if email == "" || password == "" {
-		return User{}, TokenPair{}, errors.New("email and password are required")
+	if email == "" || password == "" || !strings.Contains(email, "@") {
+		return User{}, TokenPair{}, errors.New("valid email and password are required")
 	}
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -77,6 +77,9 @@ func (s *Service) Register(ctx context.Context, email, password string) (User, T
 func (s *Service) Login(ctx context.Context, email, password string) (User, TokenPair, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	password = strings.TrimSpace(password)
+	if email == "" || password == "" || !strings.Contains(email, "@") {
+		return User{}, TokenPair{}, errors.New("invalid credentials")
+	}
 	row := s.db.QueryRowContext(ctx, `SELECT u.id, u.org_id, u.email, u.password_hash, m.role
 FROM users u
 JOIN memberships m ON m.org_id=u.org_id AND m.user_id=u.id
@@ -175,12 +178,17 @@ func slugify(v string) string {
 		return "workspace"
 	}
 	var b strings.Builder
+	lastDash := false
 	for _, ch := range v {
 		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') {
 			b.WriteRune(ch)
+			lastDash = false
 			continue
 		}
-		b.WriteRune('-')
+		if !lastDash {
+			b.WriteRune('-')
+			lastDash = true
+		}
 	}
 	slug := strings.Trim(b.String(), "-")
 	if slug == "" {

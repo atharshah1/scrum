@@ -360,14 +360,23 @@ func (r *Repository) replaceLabelsTx(ctx context.Context, tx *sql.Tx, orgID, iss
 	if _, err := execFn(ctx, `DELETE FROM issue_labels WHERE org_id=$1 AND issue_id=$2`, orgID, issueID); err != nil {
 		return err
 	}
+	valueParts := make([]string, 0, len(labels))
+	args := []any{}
+	argN := 1
 	for _, label := range labels {
 		label = strings.TrimSpace(label)
 		if label == "" {
 			continue
 		}
-		if _, err := execFn(ctx, `INSERT INTO issue_labels (org_id, issue_id, label) VALUES ($1,$2,$3)`, orgID, issueID, label); err != nil {
-			return err
-		}
+		valueParts = append(valueParts, "($"+itoa(argN)+",$"+itoa(argN+1)+",$"+itoa(argN+2)+")")
+		args = append(args, orgID, issueID, label)
+		argN += 3
+	}
+	if len(valueParts) == 0 {
+		return nil
+	}
+	if _, err := execFn(ctx, `INSERT INTO issue_labels (org_id, issue_id, label) VALUES `+strings.Join(valueParts, ","), args...); err != nil {
+		return err
 	}
 	return nil
 }

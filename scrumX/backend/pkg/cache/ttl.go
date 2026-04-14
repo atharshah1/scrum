@@ -29,7 +29,9 @@ func (c *TTLCache) Get(key string) (any, bool) {
 	}
 	if time.Now().After(it.expiresAt) {
 		c.mu.Lock()
-		delete(c.items, key)
+		if current, exists := c.items[key]; exists && !current.expiresAt.After(time.Now()) {
+			delete(c.items, key)
+		}
 		c.mu.Unlock()
 		return nil, false
 	}
@@ -41,4 +43,3 @@ func (c *TTLCache) Set(key string, value any) {
 	c.items[key] = item{value: value, expiresAt: time.Now().Add(c.ttl)}
 	c.mu.Unlock()
 }
-

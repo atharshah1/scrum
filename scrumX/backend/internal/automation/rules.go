@@ -110,4 +110,3 @@ func (s *Store) RecordExecution(ctx context.Context, orgID, ruleID uuid.UUID, ev
 	_, _ = s.db.ExecContext(ctx, `INSERT INTO automation_executions (id, org_id, rule_id, event_type, status, result) VALUES ($1,$2,$3,$4,$5,$6)`,
 		uuid.New(), orgID, ruleID, eventType, status, raw)
 }
-

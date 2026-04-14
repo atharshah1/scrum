@@ -12,6 +12,12 @@ type Service struct {
 	db *sql.DB
 }
 
+const (
+	RoleAdmin  = "Admin"
+	RoleMember = "Member"
+	RoleViewer = "Viewer"
+)
+
 func NewService(db *sql.DB) *Service { return &Service{db: db} }
 
 func (s *Service) RequireOrgMember(ctx context.Context, orgID, userID uuid.UUID) (string, error) {
@@ -40,6 +46,5 @@ func (s *Service) ResolveProjectRole(ctx context.Context, orgID, userID, project
 }
 
 func CanWrite(role string) bool {
-	return role == "Admin" || role == "Member"
+	return role == RoleAdmin || role == RoleMember
 }
-
