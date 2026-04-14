@@ -126,29 +126,7 @@ func (s *Service) Update(ctx context.Context, orgID, actorID, issueID uuid.UUID,
 			input.Status = nil
 		}
 	}
-	if input.Status != nil {
-		rule, err := s.repo.GetTransitionRule(ctx, orgID, current.ProjectID, current.Status, *input.Status)
-		if err != nil {
-			return Issue{}, err
-		}
-		if !rule.Allowed {
-			return Issue{}, errors.New("invalid status transition")
-		}
-		if err := applyTransitionRule(&input, current, actorID, rule); err != nil {
-			return Issue{}, err
-		}
-	}
-	issue, err := s.repo.Update(ctx, orgID, issueID, input)
-	if err != nil {
-		return Issue{}, err
-	}
-	_ = s.repo.AddActivity(ctx, orgID, issue.ID, actorID, "updated", "", "", "")
-	if input.Status != nil && *input.Status != current.Status {
-		_ = s.repo.AddActivity(ctx, orgID, issue.ID, actorID, "status_changed", "status", current.Status, *input.Status)
-	}
-	_ = s.bus.Publish(ctx, events.New(orgID, "issue.updated", actorID, map[string]any{"issue": issue}))
-	s.invalidateProjectCaches(orgID)
-	return issue, nil
+	return s.applyIssueUpdate(ctx, orgID, actorID, current, input, "updated", "issue.updated")
 }
 
 func (s *Service) Delete(ctx context.Context, orgID, actorID, issueID uuid.UUID) error {
@@ -385,25 +363,12 @@ func (s *Service) ApplyAutomationUpdate(ctx context.Context, orgID, issueID uuid
 	if strings.TrimSpace(status) != "" {
 		normalizedStatus := strings.ToLower(strings.TrimSpace(status))
 		input.Status = &normalizedStatus
-		rule, err := s.repo.GetTransitionRule(ctx, orgID, current.ProjectID, current.Status, normalizedStatus)
-		if err != nil {
-			return err
-		}
-		if !rule.Allowed {
-			return errors.New("invalid status transition")
-		}
 	}
 	if assigneeID != nil {
 		input.AssigneeID = assigneeID
 	}
-	updated, err := s.repo.Update(ctx, orgID, issueID, input)
-	if err != nil {
-		return err
-	}
-	_ = s.repo.AddActivity(ctx, orgID, issueID, uuid.Nil, "automation_updated", "", "", "")
-	_ = s.bus.Publish(ctx, events.New(orgID, "issue.automated", uuid.Nil, map[string]any{"issue": updated}))
-	s.invalidateProjectCaches(orgID)
-	return nil
+	_, err = s.applyIssueUpdate(ctx, orgID, uuid.Nil, current, input, "automation_updated", "issue.automated")
+	return err
 }
 
 func (s *Service) invalidateProjectCaches(orgID uuid.UUID) {
@@ -412,4 +377,30 @@ func (s *Service) invalidateProjectCaches(orgID uuid.UUID) {
 	}
 	s.cache.DeletePrefix("board:" + orgID.String() + ":")
 	s.cache.DeletePrefix("issues:" + orgID.String() + ":")
+}
+
+func (s *Service) applyIssueUpdate(ctx context.Context, orgID, actorID uuid.UUID, current Issue, input UpdateIssueInput, activityAction, eventType string) (Issue, error) {
+	if input.Status != nil {
+		rule, err := s.repo.GetTransitionRule(ctx, orgID, current.ProjectID, current.Status, *input.Status)
+		if err != nil {
+			return Issue{}, err
+		}
+		if !rule.Allowed {
+			return Issue{}, errors.New("invalid status transition")
+		}
+		if err := applyTransitionRule(&input, current, actorID, rule); err != nil {
+			return Issue{}, err
+		}
+	}
+	issue, err := s.repo.Update(ctx, orgID, current.ID, input)
+	if err != nil {
+		return Issue{}, err
+	}
+	_ = s.repo.AddActivity(ctx, orgID, issue.ID, actorID, activityAction, "", "", "")
+	if input.Status != nil && *input.Status != current.Status {
+		_ = s.repo.AddActivity(ctx, orgID, issue.ID, actorID, "status_changed", "status", current.Status, *input.Status)
+	}
+	_ = s.bus.Publish(ctx, events.New(orgID, eventType, actorID, map[string]any{"issue": issue}))
+	s.invalidateProjectCaches(orgID)
+	return issue, nil
 }
