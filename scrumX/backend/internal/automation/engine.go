@@ -2,6 +2,7 @@ package automation
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -129,10 +130,14 @@ func (e *Engine) executeActionWithRetry(ctx context.Context, action Action, even
 		if attempt == e.maxRetries {
 			break
 		}
+		timer := time.NewTimer(time.Duration(attempt+1) * e.backoff)
 		select {
 		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
 			return ctx.Err()
-		case <-time.After(time.Duration(attempt+1) * e.backoff):
+		case <-timer.C:
 		}
 	}
 	return err
@@ -150,7 +155,7 @@ func (e *Engine) executeAction(ctx context.Context, action Action, event events.
 	if e.issues != nil && (action.Type == "update issue" || action.Type == "assign issue") {
 		issueID, ok := action.Params["issue_id"].(string)
 		if !ok && action.Params["issue_id"] != nil {
-			e.log.Warn("automation_invalid_param", "param", "issue_id", "action", action.Type)
+			return errors.New("automation issue_id must be a string")
 		}
 		if issueID == "" {
 			if fromPayload, ok := event.Payload["issue_id"].(string); ok {
@@ -167,11 +172,11 @@ func (e *Engine) executeAction(ctx context.Context, action Action, event events.
 		}
 		status, ok := action.Params["status"].(string)
 		if !ok && action.Params["status"] != nil {
-			e.log.Warn("automation_invalid_param", "param", "status", "action", action.Type)
+			return errors.New("automation status must be a string")
 		}
 		assigneeID, ok := action.Params["assignee_id"].(string)
 		if !ok && action.Params["assignee_id"] != nil {
-			e.log.Warn("automation_invalid_param", "param", "assignee_id", "action", action.Type)
+			return errors.New("automation assignee_id must be a string")
 		}
 		status = strings.ToLower(strings.TrimSpace(status))
 		if assigneeID != "" {

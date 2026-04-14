@@ -56,7 +56,8 @@ func (s *Service) Register(ctx context.Context, email, password string) (User, T
 
 	orgID := uuid.New()
 	userID := uuid.New()
-	orgSlug := fmt.Sprintf("%s-%s", slugify(strings.Split(email, "@")[0]), orgID.String()[:8])
+	localPart, _, _ := strings.Cut(email, "@")
+	orgSlug := fmt.Sprintf("%s-%s", slugify(localPart), orgID.String()[:8])
 	if _, err = tx.ExecContext(ctx, `INSERT INTO organizations (id, name, slug) VALUES ($1,$2,$3)`, orgID, orgSlug, orgSlug); err != nil {
 		return User{}, TokenPair{}, err
 	}
@@ -179,6 +180,8 @@ WHERE org_id=$1 AND user_id=$2 AND token_id=$3 AND revoked_at IS NULL`, orgID, u
 	return tx.Commit()
 }
 
+// slugify normalizes a string into a lowercase slug, collapsing non-alphanumeric
+// runs into single dashes and falling back to "workspace" when nothing usable remains.
 func slugify(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	if v == "" {

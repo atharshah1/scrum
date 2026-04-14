@@ -109,9 +109,9 @@ func (h *Handler) getBoard(c *fiber.Ctx) error {
 	if cached, ok := h.cache.Get(cacheKey); ok {
 		return utils.JSONSuccess(c, fiber.StatusOK, cached)
 	}
-	boardIssues, fetchErr := h.loadBoardIssues(c, orgID, projectID, collectBoardStatuses(columns), sprintID, limit, offset)
-	if fetchErr != nil {
-		return utils.JSONError(c, fiber.StatusInternalServerError, fetchErr.Error())
+	boardIssues, err := h.loadBoardIssues(c, orgID, projectID, collectBoardStatuses(columns), sprintID, limit, offset)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	for i := range columns {
 		columns[i].Issues = filterBoardIssuesByStatuses(boardIssues, columns[i].Statuses)

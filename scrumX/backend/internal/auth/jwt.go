@@ -101,7 +101,7 @@ func ParseRefreshClaims(refreshToken, secret string) (RefreshClaims, error) {
 	}, nil
 }
 
-func asString(value interface{}) string {
+func asString(value any) string {
 	if value == nil {
 		return ""
 	}

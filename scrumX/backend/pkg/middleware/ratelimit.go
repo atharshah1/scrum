@@ -25,6 +25,11 @@ func RateLimitMiddleware(limit int, window time.Duration) fiber.Handler {
 		key := c.IP() + ":" + c.Route().Path
 		now := time.Now()
 		mu.Lock()
+		for existingKey, existingEntry := range entries {
+			if now.After(existingEntry.resetAt) {
+				delete(entries, existingKey)
+			}
+		}
 		entry, ok := entries[key]
 		if !ok || now.After(entry.resetAt) {
 			entry = rateLimitEntry{count: 0, resetAt: now.Add(window)}

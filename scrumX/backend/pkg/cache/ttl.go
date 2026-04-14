@@ -30,7 +30,7 @@ func (c *TTLCache) Get(key string) (any, bool) {
 	}
 	if time.Now().After(it.expiresAt) {
 		c.mu.Lock()
-		if current, exists := c.items[key]; exists && !current.expiresAt.After(time.Now()) {
+		if current, exists := c.items[key]; exists && current.expiresAt.Equal(it.expiresAt) {
 			delete(c.items, key)
 		}
 		c.mu.Unlock()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -46,5 +47,10 @@ func (s *Service) ResolveProjectRole(ctx context.Context, orgID, userID, project
 }
 
 func CanWrite(role string) bool {
-	return role == RoleAdmin || role == RoleMember
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case strings.ToLower(RoleAdmin), strings.ToLower(RoleMember):
+		return true
+	default:
+		return false
+	}
 }

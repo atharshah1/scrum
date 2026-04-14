@@ -197,9 +197,9 @@ func (h *Handler) addIssues(c *fiber.Ctx) error {
 	}
 	placeholders := make([]string, 0, len(payload.IssueIDs))
 	args := []any{sprintID, orgID, projectID}
-	for i, issueID := range payload.IssueIDs {
+	for _, issueID := range payload.IssueIDs {
 		args = append(args, issueID)
-		placeholders = append(placeholders, "$"+itoa(i+4))
+		placeholders = append(placeholders, "$"+itoa(len(args)))
 	}
 	query := `UPDATE issues SET sprint_id=$1, updated_at=NOW()
 WHERE org_id=$2 AND project_id=$3 AND deleted_at IS NULL AND id IN (` + strings.Join(placeholders, ",") + `)`
