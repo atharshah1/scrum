@@ -1,6 +1,7 @@
 'use client';
 
 import { Search } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAppStore } from '@/store/useAppStore';
 import { Button } from '@/components/ui/button';
@@ -25,6 +26,7 @@ export function Topbar() {
       <div className="flex items-center gap-2 text-sm">
         <NotificationsPanel />
         <span className="text-muted-foreground">{user?.email ?? 'Guest'}</span>
+        {user?.role ? <Badge>{user.role}</Badge> : null}
         <Button variant="outline" size="sm" onClick={logout}>Sign out</Button>
       </div>
     </header>

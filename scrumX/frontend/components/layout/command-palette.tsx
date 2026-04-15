@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/store/useAppStore';
 
 const actions = [
-  { id: 'create-issue', label: 'Create issue', href: '/projects' },
-  { id: 'jump-project', label: 'Jump to project', href: '/projects' },
-  { id: 'start-sprint', label: 'Start sprint', href: '/sprint/default' }
+  { id: 'create-issue', label: 'Create issue', href: '/projects', shortcut: 'G then P' },
+  { id: 'jump-project', label: 'Jump to project', href: '/projects', shortcut: 'Ctrl/Cmd+K' },
+  { id: 'start-sprint', label: 'Start sprint', href: '/sprint/default', shortcut: 'G then S' }
 ];
 
 export function CommandPalette() {
@@ -16,18 +16,34 @@ export function CommandPalette() {
   const setOpen = useAppStore((s) => s.setCommandPaletteOpen);
 
   useEffect(() => {
+    let pendingGo = false;
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         setOpen(!isOpen);
       }
+      if (!event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'g') {
+        pendingGo = true;
+        return;
+      }
+      if (pendingGo && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'p') {
+        event.preventDefault();
+        router.push('/projects');
+        setOpen(false);
+      }
+      if (pendingGo && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        router.push('/sprint/default');
+        setOpen(false);
+      }
+      pendingGo = false;
       if (event.key === 'Escape') {
         setOpen(false);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, setOpen]);
+  }, [isOpen, router, setOpen]);
 
   if (!isOpen) return null;
 
@@ -44,7 +60,8 @@ export function CommandPalette() {
               setOpen(false);
             }}
           >
-            {action.label}
+            <span>{action.label}</span>
+            <span className="text-xs text-muted-foreground">{action.shortcut}</span>
           </button>
         ))}
       </div>

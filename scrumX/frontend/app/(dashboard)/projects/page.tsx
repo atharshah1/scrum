@@ -1,25 +1,33 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useFormFields, required } from '@/components/forms/use-form';
 import { apiRequest } from '@/lib/api';
+import { isAdminRole } from '@/lib/permissions';
 import { qk } from '@/lib/query-keys';
 import { useAppStore } from '@/store/useAppStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import type { Issue } from '@/types';
 
 export default function ProjectsPage() {
+  const router = useRouter();
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
   const setSelectedProject = useAppStore((s) => s.setSelectedProject);
   const filters = useAppStore((s) => s.issueFilters);
   const setIssueFilter = useAppStore((s) => s.setIssueFilter);
   const queryClient = useQueryClient();
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = isAdminRole(user?.role);
+  const [activeIndex, setActiveIndex] = useState(0);
   const createIssueForm = useFormFields(
     { title: '', description: '' },
     {
@@ -62,9 +70,30 @@ export default function ProjectsPage() {
 
   const issues = useMemo(() => issuesQuery.data ?? [], [issuesQuery.data]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!issues.length) return;
+      if (event.key.toLowerCase() === 'j') {
+        event.preventDefault();
+        setActiveIndex((index) => Math.min(index + 1, issues.length - 1));
+      }
+      if (event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setActiveIndex((index) => Math.max(index - 1, 0));
+      }
+      if (event.key === 'Enter' && issues[activeIndex]) {
+        event.preventDefault();
+        router.push(`/issues/${issues[activeIndex].id}`);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeIndex, issues, router]);
+
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Projects & Issues</h1>
+      <p className="text-xs text-muted-foreground">Keyboard: J/K to move, Enter to open selected issue.</p>
       <Card>
         <CardHeader><CardTitle>Filters</CardTitle></CardHeader>
         <CardContent className="grid gap-2 md:grid-cols-4">
@@ -89,13 +118,13 @@ export default function ProjectsPage() {
           </div>
           <Input placeholder="Description" value={createIssueForm.values.description} onChange={(e) => createIssueForm.setField('description', e.target.value)} />
           <Button
-            disabled={!selectedProjectId || createIssue.isPending || !createIssueForm.isValid}
+            disabled={!selectedProjectId || createIssue.isPending || !createIssueForm.isValid || !isAdmin}
             onClick={() => {
               if (!createIssueForm.validate()) return;
               createIssue.mutate();
             }}
           >
-            Create
+            {isAdmin ? 'Create' : 'Admin only'}
           </Button>
         </CardContent>
       </Card>
@@ -111,13 +140,24 @@ export default function ProjectsPage() {
             </>
           ) : (
             issues.map((issue) => (
-              <Link key={issue.id} href={`/issues/${issue.id}`} className="block rounded-md border p-3 hover:bg-accent">
+              <Link
+                key={issue.id}
+                href={`/issues/${issue.id}`}
+                className={`block rounded-md border p-3 hover:bg-accent ${issues[activeIndex]?.id === issue.id ? 'ring-2 ring-blue-200' : ''}`}
+              >
                 <div className="font-medium">{issue.title}</div>
                 <div className="text-xs text-muted-foreground">{issue.status}</div>
               </Link>
             ))
           )}
-          {!issuesQuery.isPending && !issues.length ? <p className="text-sm text-muted-foreground">No issues found.</p> : null}
+          {!issuesQuery.isPending && !issues.length ? (
+            <EmptyState
+              title="No issues found"
+              description="Start by selecting a project and creating your first issue."
+              action={<Button onClick={() => setSelectedProject('default-project')}>Use sample project</Button>}
+              hint="Tip: after creating an issue, use J/K and Enter for keyboard triage."
+            />
+          ) : null}
         </CardContent>
       </Card>
     </div>

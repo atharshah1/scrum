@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { IssueComments } from '@/components/issues/issue-comments';
@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { apiRequest } from '@/lib/api';
 import { formatAssignee } from '@/lib/format';
 import { qk } from '@/lib/query-keys';
-import type { Issue, IssueComment, WorkflowTransition } from '@/types';
+import type { Board, Issue, IssueComment, WorkflowTransition } from '@/types';
 
 const defaultTransitions: WorkflowTransition[] = [
   { id: 'todo-in-progress', from_status: 'todo', to_status: 'in_progress', conditions: {}, validators: {}, post_functions: {} },
@@ -32,6 +32,7 @@ export default function IssueDetailPage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [nextStatus, setNextStatus] = useState('');
+  const [editing, setEditing] = useState(false);
 
   const issueQuery = useQuery({
     queryKey: qk.issue(issueId),
@@ -77,8 +78,17 @@ export default function IssueDetailPage() {
     onSuccess: (updatedIssue) => {
       setNextStatus('');
       queryClient.setQueryData(qk.issue(issueId), updatedIssue);
-      queryClient.invalidateQueries({ queryKey: ['issues'] });
-      queryClient.invalidateQueries({ queryKey: ['board'] });
+      queryClient.invalidateQueries({
+        predicate: (query) =>
+          query.queryKey[0] === 'issues' && String(query.queryKey[1] ?? '').includes(updatedIssue.project_id)
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          if (query.queryKey[0] !== 'board') return false;
+          const board = query.state.data as Board | undefined;
+          return board?.project_id === updatedIssue.project_id;
+        }
+      });
     }
   });
 
@@ -87,6 +97,22 @@ export default function IssueDetailPage() {
   });
 
   const issue = issueQuery.data;
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        if (editing) {
+          updateIssue.mutate();
+        }
+      }
+      if (event.key.toLowerCase() === 'e' && !event.metaKey && !event.ctrlKey) {
+        setEditing((value) => !value);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [editing, updateIssue]);
   const allowedTransitions = useMemo(
     () => transitions.filter((transition) => transition.from_status === issue?.status).map((transition) => transition.to_status),
     [issue?.status, transitions]
@@ -107,8 +133,8 @@ export default function IssueDetailPage() {
         <Card>
           <CardHeader><CardTitle>Issue details</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <Input defaultValue={issue?.title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
-            <Textarea defaultValue={issue?.description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" />
+            <Input defaultValue={issue?.title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" readOnly={!editing} />
+            <Textarea defaultValue={issue?.description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" readOnly={!editing} />
             <div className="flex items-center gap-2">
               <Badge>{issue?.status ?? 'unknown'}</Badge>
               <Badge>{formatAssignee(issue?.assignee_id)}</Badge>
@@ -129,10 +155,12 @@ export default function IssueDetailPage() {
               </Button>
             </div>
             <div className="flex gap-2">
-              <Button onClick={() => updateIssue.mutate()} disabled={updateIssue.isPending}>Update issue</Button>
+              <Button onClick={() => updateIssue.mutate()} disabled={updateIssue.isPending || !editing}>Update issue</Button>
+              <Button variant="outline" onClick={() => setEditing((v) => !v)}>{editing ? 'View mode' : 'Quick edit (E)'}</Button>
               <Button variant="outline" onClick={() => timeMutation.mutate('start')}>Start timer</Button>
               <Button variant="outline" onClick={() => timeMutation.mutate('stop')}>Stop timer</Button>
             </div>
+            {editing ? <p className="text-xs text-muted-foreground">Tip: press Ctrl/Cmd+S to save quickly.</p> : null}
           </CardContent>
         </Card>
 

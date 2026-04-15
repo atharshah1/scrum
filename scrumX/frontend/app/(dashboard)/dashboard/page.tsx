@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiRequest } from '@/lib/api';
 import { qk } from '@/lib/query-keys';
@@ -54,7 +56,14 @@ export default function DashboardPage() {
               </Link>
             ))
           )}
-          {!issuesQuery.isPending && !issues.length ? <p className="text-muted-foreground">No activity yet.</p> : null}
+          {!issuesQuery.isPending && !issues.length ? (
+            <EmptyState
+              title="No activity yet"
+              description="Create an issue to start tracking work on your board."
+              action={<Link href="/projects"><Button>Create issue</Button></Link>}
+              hint="Once created, updates and comments appear here in real time."
+            />
+          ) : null}
         </CardContent>
       </Card>
     </div>

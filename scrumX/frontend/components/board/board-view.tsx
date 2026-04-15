@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { CSS } from '@dnd-kit/utilities';
 import { DndContext, DragEndEvent, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -43,6 +44,16 @@ function moveIssueInBoard(board: Board, issueId: string, targetStatus: string): 
 export function BoardView({ boardId, board, transitions }: { boardId: string; board: Board; transitions: WorkflowTransition[] }) {
   const queryClient = useQueryClient();
   const sensors = useSensors(useSensor(PointerSensor));
+  const issuesById = useMemo(
+    () =>
+      board.columns.reduce<Record<string, Issue>>((acc, column) => {
+        column.issues.forEach((issue) => {
+          acc[issue.id] = issue;
+        });
+        return acc;
+      }, {}),
+    [board.columns]
+  );
 
   const moveIssue = useMutation({
     mutationFn: async ({ issueId, status }: { issueId: string; status: string }) =>
@@ -77,7 +88,7 @@ export function BoardView({ boardId, board, transitions }: { boardId: string; bo
     const targetStatus = event.over?.id ? String(event.over.id) : '';
     if (!issueId || !targetStatus) return;
 
-    const activeIssue = board.columns.flatMap((column) => column.issues).find((issue) => issue.id === issueId);
+    const activeIssue = issuesById[issueId];
     if (!activeIssue || activeIssue.status === targetStatus) return;
 
     if (!canTransition(activeIssue.status, targetStatus, transitions)) {
@@ -106,6 +117,9 @@ export function BoardView({ boardId, board, transitions }: { boardId: string; bo
 function BoardColumnCard({ column, transitions }: { column: Board['columns'][number]; transitions: WorkflowTransition[] }) {
   const targetStatus = column.statuses[0] ?? column.name.toLowerCase();
   const { setNodeRef, isOver } = useDroppable({ id: targetStatus });
+  const [visibleCount, setVisibleCount] = useState(80);
+  const visibleIssues = column.issues.slice(0, visibleCount);
+  const hasMore = column.issues.length > visibleCount;
 
   return (
     <div ref={setNodeRef}>
@@ -117,9 +131,18 @@ function BoardColumnCard({ column, transitions }: { column: Board['columns'][num
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {column.issues.map((issue) => (
+          {visibleIssues.map((issue) => (
             <IssueCard key={issue.id} issue={issue} transitions={transitions} />
           ))}
+          {hasMore ? (
+            <button
+              type="button"
+              className="w-full rounded-md border border-dashed p-2 text-xs text-muted-foreground hover:bg-accent"
+              onClick={() => setVisibleCount((count) => count + 80)}
+            >
+              Show 80 more issues
+            </button>
+          ) : null}
         </CardContent>
       </Card>
     </div>

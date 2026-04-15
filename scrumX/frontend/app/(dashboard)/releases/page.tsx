@@ -1,8 +1,11 @@
 'use client';
 
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
 import { apiRequest } from '@/lib/api';
 import { qk } from '@/lib/query-keys';
 
@@ -26,7 +29,14 @@ export default function ReleasesPage() {
             </div>
           </div>
         ))}
-        {!releases.data?.length && <p className="text-sm text-muted-foreground">No releases available yet.</p>}
+        {!releases.data?.length ? (
+          <EmptyState
+            title="No releases available yet"
+            description="Link issues to a release to start tracking deployment readiness."
+            action={<Link href="/projects"><Button>Prepare release scope</Button></Link>}
+            hint="Tip: use labels like release:candidate to group scope quickly."
+          />
+        ) : null}
       </CardContent>
     </Card>
   );

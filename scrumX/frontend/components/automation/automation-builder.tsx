@@ -15,10 +15,41 @@ import type { AutomationRule } from '@/types';
 const triggers = ['issue.created', 'issue.updated', 'comment.added', 'sprint.updated'];
 
 type Condition = { field: string; op: string; value: string };
-
 type Action = { type: string; value: string };
 
-export function AutomationBuilder() {
+type RuleTemplate = {
+  id: string;
+  label: string;
+  trigger: string;
+  conditions: Condition[];
+  actions: Action[];
+};
+
+const templates: RuleTemplate[] = [
+  {
+    id: 'done-to-qa',
+    label: 'Done → Assign QA',
+    trigger: 'issue.updated',
+    conditions: [{ field: 'status', op: 'eq', value: 'done' }],
+    actions: [{ type: 'assign', value: 'qa-user' }]
+  },
+  {
+    id: 'new-high-priority',
+    label: 'New High Priority Alert',
+    trigger: 'issue.created',
+    conditions: [{ field: 'priority', op: 'eq', value: 'high' }],
+    actions: [{ type: 'notify', value: 'on-call' }]
+  },
+  {
+    id: 'comment-escalation',
+    label: 'Escalate on blocker comment',
+    trigger: 'comment.added',
+    conditions: [{ field: 'body', op: 'contains', value: 'blocker' }],
+    actions: [{ type: 'set_priority', value: 'high' }]
+  }
+];
+
+export function AutomationBuilder({ canEdit }: { canEdit: boolean }) {
   const [name, setName] = useState('');
   const [trigger, setTrigger] = useState(triggers[0]);
   const [conditions, setConditions] = useState<Condition[]>([{ field: 'status', op: 'eq', value: 'done' }]);
@@ -40,6 +71,31 @@ export function AutomationBuilder() {
     [actions, conditions, name, trigger]
   );
 
+  const previewResult = useMemo(() => {
+    const previewEvent = {
+      trigger,
+      payload: {
+        status: 'done',
+        priority: 'high',
+        body: 'blocker found in production'
+      }
+    };
+
+    const matches = conditions.every((condition) => {
+      const eventValue = String((previewEvent.payload as Record<string, string>)[condition.field] ?? '');
+      if (condition.op === 'eq') return eventValue === condition.value;
+      if (condition.op === 'ne') return eventValue !== condition.value;
+      if (condition.op === 'contains') return eventValue.toLowerCase().includes(condition.value.toLowerCase());
+      return false;
+    });
+
+    return {
+      previewEvent,
+      matches,
+      actions: matches ? actions : []
+    };
+  }, [actions, conditions, trigger]);
+
   const createRule = useMutation({
     mutationFn: async (rule: AutomationRule) => apiRequest('/automation/rules', { method: 'POST', body: JSON.stringify(rule) }),
     onSuccess: () => {
@@ -58,7 +114,23 @@ export function AutomationBuilder() {
     conditions.every((c) => c.field.trim() && c.op.trim() && c.value.trim()) &&
     actions.every((a) => a.type.trim() && a.value.trim());
 
+  const applyTemplate = (templateId: string) => {
+    if (!templateId) return;
+    const template = templates.find((item) => item.id === templateId);
+    if (!template) return;
+    setName(template.label);
+    setTrigger(template.trigger);
+    setConditions(template.conditions);
+    setActions(template.actions);
+    setJsonMode(false);
+  };
+
   const submit = () => {
+    if (!canEdit) {
+      toast({ title: 'Permission denied', description: 'Only admins can manage automation rules.', variant: 'error' });
+      return;
+    }
+
     if (jsonMode) {
       try {
         const parsed = JSON.parse(jsonPayload) as AutomationRule;
@@ -86,22 +158,33 @@ export function AutomationBuilder() {
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <span>Automation builder</span>
-          <Button variant="outline" onClick={() => setJsonMode((v) => !v)}>{jsonMode ? 'Visual mode' : 'JSON mode'}</Button>
+          <Button variant="outline" onClick={() => setJsonMode((v) => !v)} disabled={!canEdit}>{jsonMode ? 'Visual mode' : 'JSON mode'}</Button>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        <div className="rounded-md border p-3">
+          <div className="mb-2 text-xs font-medium text-muted-foreground">Templates</div>
+          <Select defaultValue="" onChange={(e) => applyTemplate(e.target.value)} disabled={!canEdit}>
+            <option value="">Start from template...</option>
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>{template.label}</option>
+            ))}
+          </Select>
+        </div>
+
         {jsonMode ? (
           <Textarea
             value={jsonPayload}
             onChange={(e) => setJsonPayload(e.target.value)}
             placeholder={JSON.stringify(visualRule, null, 2)}
             className="min-h-[220px]"
+            readOnly={!canEdit}
           />
         ) : (
           <>
-            <Input placeholder="Rule name" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input placeholder="Rule name" value={name} onChange={(e) => setName(e.target.value)} readOnly={!canEdit} />
             <div className="grid gap-2 md:grid-cols-3">
-              <Select value={trigger} onChange={(e) => setTrigger(e.target.value)}>{triggers.map((t) => <option key={t}>{t}</option>)}</Select>
+              <Select value={trigger} onChange={(e) => setTrigger(e.target.value)} disabled={!canEdit}>{triggers.map((t) => <option key={t}>{t}</option>)}</Select>
             </div>
 
             <div className="space-y-2 rounded-md border p-3">
@@ -114,12 +197,14 @@ export function AutomationBuilder() {
                       setConditions((prev) => prev.map((item, i) => (i === index ? { ...item, field: e.target.value } : item)))
                     }
                     placeholder="Field"
+                    readOnly={!canEdit}
                   />
                   <Select
                     value={condition.op}
                     onChange={(e) =>
                       setConditions((prev) => prev.map((item, i) => (i === index ? { ...item, op: e.target.value } : item)))
                     }
+                    disabled={!canEdit}
                   >
                     <option value="eq">equals</option>
                     <option value="ne">not equals</option>
@@ -131,17 +216,18 @@ export function AutomationBuilder() {
                       setConditions((prev) => prev.map((item, i) => (i === index ? { ...item, value: e.target.value } : item)))
                     }
                     placeholder="Value"
+                    readOnly={!canEdit}
                   />
                   <Button
                     variant="outline"
                     onClick={() => setConditions((prev) => prev.filter((_, i) => i !== index))}
-                    disabled={conditions.length === 1}
+                    disabled={!canEdit || conditions.length === 1}
                   >
                     Remove
                   </Button>
                 </div>
               ))}
-              <Button variant="outline" onClick={() => setConditions((prev) => [...prev, { field: '', op: 'eq', value: '' }])}>Add condition</Button>
+              <Button variant="outline" onClick={() => setConditions((prev) => [...prev, { field: '', op: 'eq', value: '' }])} disabled={!canEdit}>Add condition</Button>
             </div>
 
             <div className="space-y-2 rounded-md border p-3">
@@ -154,6 +240,7 @@ export function AutomationBuilder() {
                       setActions((prev) => prev.map((item, i) => (i === index ? { ...item, type: e.target.value } : item)))
                     }
                     placeholder="Action type"
+                    readOnly={!canEdit}
                   />
                   <Input
                     value={action.value}
@@ -161,21 +248,33 @@ export function AutomationBuilder() {
                       setActions((prev) => prev.map((item, i) => (i === index ? { ...item, value: e.target.value } : item)))
                     }
                     placeholder="Action value"
+                    readOnly={!canEdit}
                   />
                   <Button
                     variant="outline"
                     onClick={() => setActions((prev) => prev.filter((_, i) => i !== index))}
-                    disabled={actions.length === 1}
+                    disabled={!canEdit || actions.length === 1}
                   >
                     Remove
                   </Button>
                 </div>
               ))}
-              <Button variant="outline" onClick={() => setActions((prev) => [...prev, { type: '', value: '' }])}>Add action</Button>
+              <Button variant="outline" onClick={() => setActions((prev) => [...prev, { type: '', value: '' }])} disabled={!canEdit}>Add action</Button>
             </div>
           </>
         )}
-        <Button onClick={submit} disabled={createRule.isPending || (!jsonMode && !isVisualValid)}>Save rule</Button>
+
+        <div className="rounded-md border bg-muted/20 p-3">
+          <div className="text-xs font-medium text-muted-foreground">Preview execution</div>
+          <div className="mt-1 text-xs text-muted-foreground">Sample event payload: {JSON.stringify(previewResult.previewEvent.payload)}</div>
+          <div className="mt-2 text-sm">
+            {previewResult.matches
+              ? `Rule would execute ${previewResult.actions.length} action(s): ${previewResult.actions.map((action) => `${action.type}(${action.value})`).join(', ')}`
+              : 'Rule conditions do not match the sample event.'}
+          </div>
+        </div>
+
+        <Button onClick={submit} disabled={createRule.isPending || (!jsonMode && !isVisualValid) || !canEdit}>Save rule</Button>
       </CardContent>
     </Card>
   );

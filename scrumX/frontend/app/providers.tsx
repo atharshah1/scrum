@@ -7,7 +7,7 @@ import { ToastList, toast } from '@/components/ui/toast';
 import { realtimeClient } from '@/lib/websocket';
 import { qk } from '@/lib/query-keys';
 import { useAuthStore } from '@/store/useAuthStore';
-import type { ScrumEvent } from '@/types';
+import type { Board, ScrumEvent } from '@/types';
 
 function extractIssuePayload(event: ScrumEvent): { issueId?: string; projectId?: string } {
   const payload = event.payload as Record<string, unknown>;
@@ -48,7 +48,14 @@ function RealtimeBridge() {
             return String(query.queryKey[1] ?? '').includes(projectId);
           }
         });
-        queryClient.invalidateQueries({ queryKey: ['board'] });
+        queryClient.invalidateQueries({
+          predicate: (query) => {
+            if (query.queryKey[0] !== 'board') return false;
+            if (!projectId) return false;
+            const board = query.state.data as Board | undefined;
+            return board?.project_id === projectId;
+          }
+        });
       }
       if (event.type === 'issue.comment_created' || event.type === 'comment.added') {
         if (issueId) {
@@ -80,8 +87,8 @@ function RealtimeBridge() {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = useState(
-    () =>
-      new QueryClient({
+    () => {
+      const queryClient = new QueryClient({
         queryCache: new QueryCache({
           onError: (error) => {
             toast({ title: 'Request failed', description: (error as Error).message, variant: 'error' });
@@ -94,13 +101,20 @@ export function Providers({ children }: { children: React.ReactNode }) {
         }),
         defaultOptions: {
           queries: {
-            staleTime: 15_000,
+            staleTime: 30_000,
             gcTime: 600_000,
             retry: 2,
             refetchOnWindowFocus: false
           }
         }
-      })
+      });
+
+      queryClient.setQueryDefaults(['issues'], { staleTime: 20_000, gcTime: 900_000 });
+      queryClient.setQueryDefaults(['board'], { staleTime: 45_000, gcTime: 900_000 });
+      queryClient.setQueryDefaults(['automation-rules'], { staleTime: 120_000, gcTime: 1_200_000 });
+      queryClient.setQueryDefaults(['notifications'], { staleTime: 8_000, gcTime: 300_000 });
+      return queryClient;
+    }
   );
 
   return (
