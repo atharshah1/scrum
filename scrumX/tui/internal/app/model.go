@@ -29,6 +29,11 @@ type transitionsLoadedMsg struct {
 }
 
 type transitionAppliedMsg struct{ err error }
+type issueLoadedMsg struct {
+	issue api.Issue
+	err   error
+}
+type actionAppliedMsg struct{ err error }
 type eventMsg struct{ event api.Event }
 type eventErrMsg struct{ err error }
 
@@ -47,6 +52,14 @@ type Model struct {
 	transitionIndex   int
 	notifications     []api.Notification
 	unreadCount       int
+	inIssueDetailMode bool
+	issueDetail       *api.Issue
+	inNotifications   bool
+	notificationIndex int
+	inInputMode       bool
+	inputLabel        string
+	inputValue        string
+	inputAction       string
 }
 
 func NewModel() Model {
@@ -60,6 +73,54 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.inInputMode {
+			switch msg.String() {
+			case "esc":
+				m.inInputMode = false
+				m.inputLabel = ""
+				m.inputValue = ""
+				m.inputAction = ""
+				return m, nil
+			case "enter":
+				value := strings.TrimSpace(m.inputValue)
+				m.inInputMode = false
+				m.inputLabel = ""
+				m.inputValue = ""
+				action := m.inputAction
+				m.inputAction = ""
+				if value == "" {
+					return m, nil
+				}
+				issueID := m.currentSelectedIssueID()
+				if issueID == "" {
+					return m, nil
+				}
+				m.loading = true
+				switch action {
+				case "title":
+					return m, m.updateIssueFieldCmd(issueID, api.UpdateIssueInput{Title: &value})
+				case "description":
+					return m, m.updateIssueFieldCmd(issueID, api.UpdateIssueInput{Description: &value})
+				case "assignee":
+					return m, m.updateIssueFieldCmd(issueID, api.UpdateIssueInput{AssigneeID: &value})
+				case "label":
+					return m, m.addLabelCmd(issueID, value)
+				default:
+					return m, nil
+				}
+			case "backspace":
+				if len(m.inputValue) > 0 {
+					m.inputValue = m.inputValue[:len(m.inputValue)-1]
+				}
+				return m, nil
+			default:
+				if len(msg.String()) == 1 {
+					m.inputValue += msg.String()
+				}
+				return m, nil
+			}
+		}
+
 		if m.inTransitionMode {
 			switch msg.String() {
 			case "esc":
@@ -86,6 +147,77 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				m.err = nil
 				return m, m.applyTransitionCmd(selected, status)
+			}
+		}
+
+		if m.inNotifications {
+			switch msg.String() {
+			case "esc", "n":
+				m.inNotifications = false
+				return m, nil
+			case "up", "k":
+				if m.notificationIndex > 0 {
+					m.notificationIndex--
+				}
+				return m, nil
+			case "down", "j":
+				if m.notificationIndex < len(m.notifications)-1 {
+					m.notificationIndex++
+				}
+				return m, nil
+			case "enter":
+				if len(m.notifications) == 0 {
+					return m, nil
+				}
+				selected := m.notifications[m.notificationIndex]
+				if selected.IsRead {
+					return m, nil
+				}
+				m.loading = true
+				return m, m.markNotificationReadCmd(selected.ID)
+			case "A":
+				m.loading = true
+				return m, m.markAllNotificationsReadCmd()
+			}
+		}
+
+		if m.inIssueDetailMode {
+			switch msg.String() {
+			case "esc", "d":
+				m.inIssueDetailMode = false
+				return m, nil
+			case "t":
+				m.inInputMode = true
+				m.inputLabel = "New title"
+				m.inputAction = "title"
+				m.inputValue = ""
+				return m, nil
+			case "e":
+				m.inInputMode = true
+				m.inputLabel = "New description"
+				m.inputAction = "description"
+				m.inputValue = ""
+				return m, nil
+			case "a":
+				m.inInputMode = true
+				m.inputLabel = "Assignee ID"
+				m.inputAction = "assignee"
+				m.inputValue = ""
+				return m, nil
+			case "l":
+				m.inInputMode = true
+				m.inputLabel = "Label to add"
+				m.inputAction = "label"
+				m.inputValue = ""
+				return m, nil
+			case "p":
+				if m.issueDetail == nil {
+					return m, nil
+				}
+				next := nextPriority(m.issueDetail.Priority)
+				issueID := m.currentSelectedIssueID()
+				m.loading = true
+				return m, m.updateIssueFieldCmd(issueID, api.UpdateIssueInput{Priority: &next})
 			}
 		}
 
@@ -123,6 +255,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				return m, m.fetchTransitionsCmd(projectID, status)
 			}
+		case "d":
+			id := m.currentSelectedIssueID()
+			if id == "" {
+				return m, nil
+			}
+			m.loading = true
+			m.inIssueDetailMode = true
+			return m, m.fetchIssueCmd(id)
+		case "n":
+			m.inNotifications = !m.inNotifications
+			return m, nil
 		}
 
 	case dataLoadedMsg:
@@ -172,6 +315,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		return m, m.fetchDataCmd()
 
+	case issueLoadedMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.issueDetail = &msg.issue
+		m.err = nil
+		return m, nil
+
+	case actionAppliedMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.err = nil
+		cmds := []tea.Cmd{m.fetchDataCmd(), m.fetchNotificationsCmd()}
+		if m.inIssueDetailMode {
+			if id := m.currentSelectedIssueID(); id != "" {
+				cmds = append(cmds, m.fetchIssueCmd(id))
+			}
+		}
+		return m, tea.Batch(cmds...)
+
 	case eventMsg:
 		if msg.event.Type != "" {
 			return m, tea.Batch(m.fetchDataCmd(), m.fetchNotificationsCmd(), m.listenEventCmd())
@@ -200,6 +368,12 @@ func (m Model) View() string {
 	b.WriteString(title)
 	b.WriteString(fmt.Sprintf("\nUnread notifications: %d\n", m.unreadCount))
 
+	if m.inInputMode {
+		b.WriteString(fmt.Sprintf("\n%s: %s\n", m.inputLabel, m.inputValue))
+		b.WriteString("Keys: type • Enter apply • Esc cancel\n")
+		return b.String()
+	}
+
 	if m.inTransitionMode {
 		b.WriteString("\nMove issue to:\n")
 		for i, t := range m.transitionOptions {
@@ -210,6 +384,26 @@ func (m Model) View() string {
 			b.WriteString(cursor + t + "\n")
 		}
 		b.WriteString("\nKeys: ↑/↓ select • Enter apply • Esc cancel\n")
+		return b.String()
+	}
+
+	if m.inNotifications {
+		b.WriteString("\nNotifications\n")
+		if len(m.notifications) == 0 {
+			b.WriteString("No notifications\n")
+		}
+		for i, n := range m.notifications {
+			cursor := "  "
+			if i == m.notificationIndex {
+				cursor = "➜ "
+			}
+			state := "unread"
+			if n.IsRead {
+				state = "read"
+			}
+			b.WriteString(fmt.Sprintf("%s[%s] %s (%s)\n", cursor, state, n.Title, n.Type))
+		}
+		b.WriteString("\nKeys: ↑/↓ select • Enter mark read • A mark all • Esc close\n")
 		return b.String()
 	}
 
@@ -249,7 +443,29 @@ func (m Model) View() string {
 			b.WriteString("No issues found\n")
 		}
 	}
-	b.WriteString("\nKeys: ←/→ switch columns • ↑/↓ move • m move issue • r refresh • q quit\n")
+	if m.inIssueDetailMode && m.issueDetail != nil {
+		assignee := "-"
+		if m.issueDetail.AssigneeID != nil && strings.TrimSpace(*m.issueDetail.AssigneeID) != "" {
+			assignee = *m.issueDetail.AssigneeID
+		}
+		sprint := "-"
+		if m.issueDetail.SprintID != nil && strings.TrimSpace(*m.issueDetail.SprintID) != "" {
+			sprint = *m.issueDetail.SprintID
+		}
+		b.WriteString("\nIssue Detail\n")
+		b.WriteString(fmt.Sprintf("Title: %s\n", m.issueDetail.Title))
+		b.WriteString(fmt.Sprintf("Status: %s\nPriority: %s\nType: %s\n", m.issueDetail.Status, m.issueDetail.Priority, m.issueDetail.IssueType))
+		b.WriteString(fmt.Sprintf("Assignee: %s\nSprint: %s\n", assignee, sprint))
+		if len(m.issueDetail.Labels) > 0 {
+			b.WriteString(fmt.Sprintf("Labels: %s\n", strings.Join(m.issueDetail.Labels, ", ")))
+		}
+		if strings.TrimSpace(m.issueDetail.Description) != "" {
+			b.WriteString(fmt.Sprintf("Description: %s\n", m.issueDetail.Description))
+		}
+		b.WriteString("Keys: t title • e description • a assignee • l add label • p cycle priority • Esc close\n")
+		return b.String()
+	}
+	b.WriteString("\nKeys: ←/→ switch columns • ↑/↓ move • m move issue • d details/edit • n notifications • r refresh • q quit\n")
 	return b.String()
 }
 
@@ -289,6 +505,41 @@ func (m Model) applyTransitionCmd(issueID, status string) tea.Cmd {
 	return func() tea.Msg {
 		err := m.client.UpdateIssueStatus(issueID, status)
 		return transitionAppliedMsg{err: err}
+	}
+}
+
+func (m Model) fetchIssueCmd(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		item, err := m.client.GetIssue(issueID)
+		return issueLoadedMsg{issue: item, err: err}
+	}
+}
+
+func (m Model) updateIssueFieldCmd(issueID string, input api.UpdateIssueInput) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.UpdateIssue(issueID, input)
+		return actionAppliedMsg{err: err}
+	}
+}
+
+func (m Model) addLabelCmd(issueID, label string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.AddIssueLabel(issueID, label)
+		return actionAppliedMsg{err: err}
+	}
+}
+
+func (m Model) markNotificationReadCmd(notificationID string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.MarkNotificationRead(notificationID)
+		return actionAppliedMsg{err: err}
+	}
+}
+
+func (m Model) markAllNotificationsReadCmd() tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.MarkAllNotificationsRead()
+		return actionAppliedMsg{err: err}
 	}
 }
 
@@ -368,4 +619,17 @@ func (m Model) currentSelectedProjectAndStatus() (string, string) {
 		return it.ProjectID, it.Status
 	}
 	return "", ""
+}
+
+func nextPriority(current string) string {
+	switch strings.ToLower(strings.TrimSpace(current)) {
+	case "low":
+		return "medium"
+	case "medium":
+		return "high"
+	case "high":
+		return "critical"
+	default:
+		return "low"
+	}
 }

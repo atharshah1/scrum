@@ -45,6 +45,20 @@ type Issue struct {
 	Labels      []string `json:"labels"`
 }
 
+type IssueListFilter struct {
+	ProjectID  string
+	Status     string
+	AssigneeID string
+	SprintID   string
+	Label      string
+	IssueType  string
+	Query      string
+	SortBy     string
+	Order      string
+	Page       int
+	Limit      int
+}
+
 type CreateIssueInput struct {
 	Title       string   `json:"title"`
 	ProjectID   string   `json:"project_id"`
@@ -105,6 +119,15 @@ type Notification struct {
 	Message   string    `json:"message"`
 	EntityID  string    `json:"entity_id,omitempty"`
 	IsRead    bool      `json:"is_read"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type IssueComment struct {
+	ID        string    `json:"id"`
+	OrgID     string    `json:"org_id"`
+	IssueID   string    `json:"issue_id"`
+	AuthorID  string    `json:"author_id"`
+	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -221,9 +244,47 @@ func (c *Client) UpdateIssue(id string, input UpdateIssueInput) (Issue, error) {
 	return out.Data, err
 }
 
-func (c *Client) ListIssues() ([]Issue, error) {
+func (c *Client) ListIssues(filter IssueListFilter) ([]Issue, error) {
+	query := url.Values{}
+	if v := strings.TrimSpace(filter.ProjectID); v != "" {
+		query.Set("project_id", v)
+	}
+	if v := strings.TrimSpace(filter.Status); v != "" {
+		query.Set("status", strings.ToLower(v))
+	}
+	if v := strings.TrimSpace(filter.AssigneeID); v != "" {
+		query.Set("assignee_id", v)
+	}
+	if v := strings.TrimSpace(filter.SprintID); v != "" {
+		query.Set("sprint_id", v)
+	}
+	if v := strings.TrimSpace(filter.Label); v != "" {
+		query.Set("label", strings.ToLower(v))
+	}
+	if v := strings.TrimSpace(filter.IssueType); v != "" {
+		query.Set("issue_type", strings.ToLower(v))
+	}
+	if v := strings.TrimSpace(filter.Query); v != "" {
+		query.Set("q", v)
+	}
+	if v := strings.TrimSpace(filter.SortBy); v != "" {
+		query.Set("sort_by", strings.ToLower(v))
+	}
+	if v := strings.TrimSpace(filter.Order); v != "" {
+		query.Set("order", strings.ToLower(v))
+	}
+	if filter.Page > 0 {
+		query.Set("page", fmt.Sprintf("%d", filter.Page))
+	}
+	if filter.Limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", filter.Limit))
+	}
+	path := "/issues"
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
 	var out envelope[[]Issue]
-	_, err := c.authedRequest(http.MethodGet, "/issues", nil, &out)
+	_, err := c.authedRequest(http.MethodGet, path, nil, &out)
 	return out.Data, err
 }
 
@@ -332,6 +393,26 @@ func (c *Client) MarkNotificationRead(notificationID string) error {
 func (c *Client) MarkAllNotificationsRead() error {
 	_, err := c.authedRequest(http.MethodPost, "/notifications/read-all", nil, &envelope[map[string]any]{})
 	return err
+}
+
+func (c *Client) AddComment(issueID, body string) (IssueComment, error) {
+	payload := map[string]string{"body": strings.TrimSpace(body)}
+	var out envelope[IssueComment]
+	_, err := c.authedRequest(http.MethodPost, "/issues/"+strings.TrimSpace(issueID)+"/comments", payload, &out)
+	return out.Data, err
+}
+
+func (c *Client) ListComments(issueID string, page, limit int) ([]IssueComment, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	path := fmt.Sprintf("/issues/%s/comments?page=%d&limit=%d", strings.TrimSpace(issueID), page, limit)
+	var out envelope[[]IssueComment]
+	_, err := c.authedRequest(http.MethodGet, path, nil, &out)
+	return out.Data, err
 }
 
 func (c *Client) authedRequest(method, path string, body any, out any) (*resty.Response, error) {

@@ -8,11 +8,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var notificationsCmd = &cobra.Command{Use: "notifications", Short: "Notification commands"}
+var notificationsCmd = &cobra.Command{Use: "notifications", Aliases: []string{"notif", "n"}, Short: "Notification commands"}
 
 var notificationsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List notifications",
+	Example: `
+  scrumx notifications list --limit 20
+`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
 		if err != nil {
@@ -45,6 +48,7 @@ var notificationsReadCmd = &cobra.Command{
 	Use:   "read <notification-id>",
 	Short: "Mark a notification as read",
 	Args:  cobra.ExactArgs(1),
+	Example: "  scrumx notifications read <notification-id>",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
 		if err != nil {
@@ -61,6 +65,7 @@ var notificationsReadCmd = &cobra.Command{
 var notificationsReadAllCmd = &cobra.Command{
 	Use:   "read-all",
 	Short: "Mark all notifications as read",
+	Example: "  scrumx notifications read-all",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
 		if err != nil {

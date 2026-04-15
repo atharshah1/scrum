@@ -20,11 +20,13 @@ type Issue struct {
 	ID         string   `json:"id"`
 	ProjectID  string   `json:"project_id"`
 	Title      string   `json:"title"`
+	Description string  `json:"description"`
 	Status     string   `json:"status"`
 	Priority   string   `json:"priority"`
 	IssueType  string   `json:"issue_type"`
 	Labels     []string `json:"labels"`
 	AssigneeID *string  `json:"assignee_id,omitempty"`
+	SprintID   *string  `json:"sprint_id,omitempty"`
 }
 
 type BoardIssue struct {
@@ -67,6 +69,17 @@ type Event struct {
 	Type    string         `json:"type"`
 	OrgID   string         `json:"org_id"`
 	Payload map[string]any `json:"payload"`
+}
+
+type UpdateIssueInput struct {
+	Title       *string   `json:"title,omitempty"`
+	Description *string   `json:"description,omitempty"`
+	Status      *string   `json:"status,omitempty"`
+	Priority    *string   `json:"priority,omitempty"`
+	IssueType   *string   `json:"issue_type,omitempty"`
+	AssigneeID  *string   `json:"assignee_id,omitempty"`
+	SprintID    *string   `json:"sprint_id,omitempty"`
+	Labels      *[]string `json:"labels,omitempty"`
 }
 
 type envelope[T any] struct {
@@ -174,6 +187,82 @@ func (c *Client) UpdateIssueStatus(issueID, status string) error {
 	return nil
 }
 
+func (c *Client) GetIssue(issueID string) (Issue, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return Issue{}, err
+	}
+	if cfg.AccessToken == "" {
+		return Issue{}, fmt.Errorf("not logged in: run scrumx auth login first")
+	}
+	var out envelope[Issue]
+	resp, err := c.request(cfg, http.MethodGet, "/issues/"+strings.TrimSpace(issueID), nil, &out)
+	if err != nil {
+		return Issue{}, err
+	}
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		return Issue{}, fmt.Errorf("request failed (%d): %s", resp.StatusCode(), parseError(out.Error.Message, resp.StatusCode()))
+	}
+	return out.Data, nil
+}
+
+func (c *Client) UpdateIssue(issueID string, input UpdateIssueInput) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	body := map[string]any{}
+	if input.Title != nil {
+		body["title"] = strings.TrimSpace(*input.Title)
+	}
+	if input.Description != nil {
+		body["description"] = strings.TrimSpace(*input.Description)
+	}
+	if input.Status != nil {
+		body["status"] = strings.ToLower(strings.TrimSpace(*input.Status))
+	}
+	if input.Priority != nil {
+		body["priority"] = strings.ToLower(strings.TrimSpace(*input.Priority))
+	}
+	if input.IssueType != nil {
+		body["issue_type"] = strings.ToLower(strings.TrimSpace(*input.IssueType))
+	}
+	if input.AssigneeID != nil {
+		body["assignee_id"] = strings.TrimSpace(*input.AssigneeID)
+	}
+	if input.SprintID != nil {
+		body["sprint_id"] = strings.TrimSpace(*input.SprintID)
+	}
+	if input.Labels != nil {
+		body["labels"] = *input.Labels
+	}
+	var out envelope[map[string]any]
+	resp, err := c.request(cfg, http.MethodPatch, "/issues/"+strings.TrimSpace(issueID), body, &out)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		return fmt.Errorf("request failed (%d): %s", resp.StatusCode(), parseError(out.Error.Message, resp.StatusCode()))
+	}
+	return nil
+}
+
+func (c *Client) AddIssueLabel(issueID, label string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	var out envelope[map[string]any]
+	resp, err := c.request(cfg, http.MethodPost, "/issues/"+strings.TrimSpace(issueID)+"/labels", map[string]string{"label": strings.TrimSpace(label)}, &out)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		return fmt.Errorf("request failed (%d): %s", resp.StatusCode(), parseError(out.Error.Message, resp.StatusCode()))
+	}
+	return nil
+}
+
 func (c *Client) ListNotifications(limit int) ([]Notification, error) {
 	if limit <= 0 {
 		limit = 20
@@ -191,6 +280,38 @@ func (c *Client) ListNotifications(limit int) ([]Notification, error) {
 		return nil, fmt.Errorf("request failed (%d): %s", resp.StatusCode(), parseError(out.Error.Message, resp.StatusCode()))
 	}
 	return out.Data, nil
+}
+
+func (c *Client) MarkNotificationRead(notificationID string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	var out envelope[map[string]any]
+	resp, err := c.request(cfg, http.MethodPatch, "/notifications/"+strings.TrimSpace(notificationID)+"/read", nil, &out)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		return fmt.Errorf("request failed (%d): %s", resp.StatusCode(), parseError(out.Error.Message, resp.StatusCode()))
+	}
+	return nil
+}
+
+func (c *Client) MarkAllNotificationsRead() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	var out envelope[map[string]any]
+	resp, err := c.request(cfg, http.MethodPost, "/notifications/read-all", nil, &out)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		return fmt.Errorf("request failed (%d): %s", resp.StatusCode(), parseError(out.Error.Message, resp.StatusCode()))
+	}
+	return nil
 }
 
 func (c *Client) StreamEvents(ctx context.Context) (<-chan Event, <-chan error) {
