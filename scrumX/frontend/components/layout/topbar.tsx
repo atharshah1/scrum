@@ -19,6 +19,10 @@ function scoreSuggestion(item: string, token: string): number | null {
   const normalizedToken = token.trim().toLowerCase();
   if (!normalizedToken) return 0;
   const value = item.toLowerCase();
+  // Lower score = higher relevance:
+  // 0..99   => prefix match,
+  // 100..199 => contiguous substring match,
+  // 200+    => fuzzy subsequence match (characters in order with gap penalty).
   if (value.startsWith(normalizedToken)) return 0;
   const containsAt = value.indexOf(normalizedToken);
   if (containsAt >= 0) return 100 + containsAt;
