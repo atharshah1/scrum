@@ -207,6 +207,9 @@ func (c *Client) CreateIssue(input CreateIssueInput) (Issue, error) {
 	}
 	var out envelope[Issue]
 	_, err := c.authedRequest(http.MethodPost, "/issues", body, &out)
+	if err == nil {
+		c.invalidateIssueCache()
+	}
 	return out.Data, err
 }
 
@@ -241,6 +244,9 @@ func (c *Client) UpdateIssue(id string, input UpdateIssueInput) (Issue, error) {
 	}
 	var out envelope[Issue]
 	_, err := c.authedRequest(http.MethodPatch, "/issues/"+strings.TrimSpace(id), body, &out)
+	if err == nil {
+		c.invalidateIssueCache()
+	}
 	return out.Data, err
 }
 
@@ -283,25 +289,51 @@ func (c *Client) ListIssues(filter IssueListFilter) ([]Issue, error) {
 	if encoded := query.Encode(); encoded != "" {
 		path += "?" + encoded
 	}
+	cacheKey := c.cacheScope() + "|" + path
+	if cacheKey != "|" {
+		var cached []Issue
+		if c.cacheRead("issues", cacheKey, &cached) {
+			return cached, nil
+		}
+	}
 	var out envelope[[]Issue]
 	_, err := c.authedRequest(http.MethodGet, path, nil, &out)
+	if err == nil && cacheKey != "|" {
+		c.cacheWrite("issues", cacheKey, out.Data)
+	}
 	return out.Data, err
 }
 
 func (c *Client) GetIssue(id string) (Issue, error) {
+	cacheKey := c.cacheScope() + "|" + strings.TrimSpace(id)
+	if cacheKey != "|" {
+		var cached Issue
+		if c.cacheRead("issue", cacheKey, &cached) {
+			return cached, nil
+		}
+	}
 	var out envelope[Issue]
 	_, err := c.authedRequest(http.MethodGet, "/issues/"+strings.TrimSpace(id), nil, &out)
+	if err == nil && cacheKey != "|" {
+		c.cacheWrite("issue", cacheKey, out.Data)
+	}
 	return out.Data, err
 }
 
 func (c *Client) AddLabel(issueID, label string) error {
 	_, err := c.authedRequest(http.MethodPost, "/issues/"+strings.TrimSpace(issueID)+"/labels", map[string]string{"label": strings.TrimSpace(label)}, &envelope[map[string]any]{})
+	if err == nil {
+		c.invalidateIssueCache()
+	}
 	return err
 }
 
 func (c *Client) RemoveLabel(issueID, label string) error {
 	escaped := url.PathEscape(strings.TrimSpace(label))
 	_, err := c.authedRequest(http.MethodDelete, "/issues/"+strings.TrimSpace(issueID)+"/labels/"+escaped, nil, nil)
+	if err == nil {
+		c.invalidateIssueCache()
+	}
 	return err
 }
 
@@ -342,23 +374,35 @@ func (c *Client) ListAllowedTransitions(issue Issue) ([]string, error) {
 
 func (c *Client) StartSprint(sprintID string) error {
 	_, err := c.authedRequest(http.MethodPost, "/sprints/"+strings.TrimSpace(sprintID)+"/start", nil, &envelope[map[string]any]{})
+	if err == nil {
+		c.invalidateIssueCache()
+	}
 	return err
 }
 
 func (c *Client) EndSprint(sprintID string) error {
 	_, err := c.authedRequest(http.MethodPost, "/sprints/"+strings.TrimSpace(sprintID)+"/end", nil, &envelope[map[string]any]{})
+	if err == nil {
+		c.invalidateIssueCache()
+	}
 	return err
 }
 
 func (c *Client) AddIssuesToSprint(sprintID string, issueIDs []string) error {
 	payload := map[string]any{"issue_ids": compactIDs(issueIDs)}
 	_, err := c.authedRequest(http.MethodPost, "/sprints/"+strings.TrimSpace(sprintID)+"/issues", payload, &envelope[map[string]any]{})
+	if err == nil {
+		c.invalidateIssueCache()
+	}
 	return err
 }
 
 func (c *Client) RemoveIssuesFromSprint(sprintID string, issueIDs []string) error {
 	payload := map[string]any{"issue_ids": compactIDs(issueIDs)}
 	_, err := c.authedRequest(http.MethodDelete, "/sprints/"+strings.TrimSpace(sprintID)+"/issues", payload, &envelope[map[string]any]{})
+	if err == nil {
+		c.invalidateIssueCache()
+	}
 	return err
 }
 
@@ -399,6 +443,9 @@ func (c *Client) AddComment(issueID, body string) (IssueComment, error) {
 	payload := map[string]string{"body": strings.TrimSpace(body)}
 	var out envelope[IssueComment]
 	_, err := c.authedRequest(http.MethodPost, "/issues/"+strings.TrimSpace(issueID)+"/comments", payload, &out)
+	if err == nil {
+		c.invalidateIssueCache()
+	}
 	return out.Data, err
 }
 
