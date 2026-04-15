@@ -81,6 +81,26 @@ func (s *Service) Search(ctx context.Context, orgID, actorID uuid.UUID, query st
 	return s.repo.Search(ctx, orgID, actorID, query, page, limit)
 }
 
+func (s *Service) SaveQuery(ctx context.Context, orgID, actorID uuid.UUID, name, query string) (SavedIssueQuery, error) {
+	return s.repo.SaveQuery(ctx, orgID, actorID, name, query)
+}
+
+func (s *Service) ListSavedQueries(ctx context.Context, orgID, actorID uuid.UUID) ([]SavedIssueQuery, error) {
+	return s.repo.ListSavedQueries(ctx, orgID, actorID)
+}
+
+func (s *Service) DeleteSavedQuery(ctx context.Context, orgID, actorID, savedQueryID uuid.UUID) error {
+	return s.repo.DeleteSavedQuery(ctx, orgID, actorID, savedQueryID)
+}
+
+func (s *Service) ListRecentQueries(ctx context.Context, orgID, actorID uuid.UUID, limit int) ([]RecentIssueQuery, error) {
+	return s.repo.ListRecentQueries(ctx, orgID, actorID, limit)
+}
+
+func (s *Service) SearchSuggestions(ctx context.Context, orgID, actorID uuid.UUID) (IssueSearchSuggestions, error) {
+	return s.repo.SearchSuggestions(ctx, orgID, actorID)
+}
+
 func (s *Service) Get(ctx context.Context, orgID, issueID uuid.UUID) (Issue, error) {
 	return s.repo.GetByID(ctx, orgID, issueID)
 }

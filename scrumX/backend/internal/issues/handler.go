@@ -42,7 +42,12 @@ func (h *Handler) RegisterRoutes(api fiber.Router) {
 	issues := api.Group("/issues")
 	issues.Post("/", h.create)
 	issues.Get("/", h.list)
+	issues.Get("/search/suggestions", h.searchSuggestions)
 	issues.Get("/search", h.search)
+	issues.Get("/queries/saved", h.listSavedQueries)
+	issues.Post("/queries/saved", h.saveQuery)
+	issues.Delete("/queries/saved/:id", h.deleteSavedQuery)
+	issues.Get("/queries/recent", h.listRecentQueries)
 	issues.Get("/:id", h.get)
 	issues.Patch("/:id", h.update)
 	issues.Delete("/:id", h.delete)
@@ -214,6 +219,18 @@ func (h *Handler) search(c *fiber.Ctx) error {
 	}
 	items, total, ast, err := h.service.Search(c.Context(), orgID, actorID, query, page, limit)
 	if err != nil {
+		var validationErr *IssueSearchValidationError
+		if errors.As(err, &validationErr) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"error": fiber.Map{
+					"message": validationErr.Message,
+					"code":    validationErr.Code,
+					"field":   validationErr.Field,
+					"token":   validationErr.Token,
+				},
+			})
+		}
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
@@ -226,6 +243,108 @@ func (h *Handler) search(c *fiber.Ctx) error {
 			"ast":   ast,
 		},
 	})
+}
+
+func (h *Handler) searchSuggestions(c *fiber.Ctx) error {
+	orgID, ok := middleware.MustOrgID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
+	}
+	actorID, ok := middleware.MustUserID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusUnauthorized, "missing user context")
+	}
+	suggestions, err := h.service.SearchSuggestions(c.Context(), orgID, actorID)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return utils.JSONSuccess(c, fiber.StatusOK, suggestions)
+}
+
+func (h *Handler) saveQuery(c *fiber.Ctx) error {
+	orgID, ok := middleware.MustOrgID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
+	}
+	actorID, ok := middleware.MustUserID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusUnauthorized, "missing user context")
+	}
+	var payload struct {
+		Name  string `json:"name"`
+		Query string `json:"query"`
+	}
+	if err := c.BodyParser(&payload); err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
+	}
+	name, err := validation.NormalizeRequiredString("name", payload.Name, 80)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	query, err := validation.NormalizeRequiredString("query", payload.Query, maxIssueSearchLength)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	if _, _, parseErr := parseIssueSearchQuery(query); parseErr != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, parseErr.Error())
+	}
+	saved, err := h.service.SaveQuery(c.Context(), orgID, actorID, name, query)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	return utils.JSONSuccess(c, fiber.StatusCreated, saved)
+}
+
+func (h *Handler) listSavedQueries(c *fiber.Ctx) error {
+	orgID, ok := middleware.MustOrgID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
+	}
+	actorID, ok := middleware.MustUserID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusUnauthorized, "missing user context")
+	}
+	items, err := h.service.ListSavedQueries(c.Context(), orgID, actorID)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return utils.JSONSuccess(c, fiber.StatusOK, items)
+}
+
+func (h *Handler) deleteSavedQuery(c *fiber.Ctx) error {
+	orgID, ok := middleware.MustOrgID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
+	}
+	actorID, ok := middleware.MustUserID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusUnauthorized, "missing user context")
+	}
+	savedID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, "invalid id")
+	}
+	if err := h.service.DeleteSavedQuery(c.Context(), orgID, actorID, savedID); err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *Handler) listRecentQueries(c *fiber.Ctx) error {
+	orgID, ok := middleware.MustOrgID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
+	}
+	actorID, ok := middleware.MustUserID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusUnauthorized, "missing user context")
+	}
+	limit := c.QueryInt("limit", 20)
+	items, err := h.service.ListRecentQueries(c.Context(), orgID, actorID, limit)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return utils.JSONSuccess(c, fiber.StatusOK, items)
 }
 
 func (h *Handler) get(c *fiber.Ctx) error {

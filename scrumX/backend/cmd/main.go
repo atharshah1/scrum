@@ -151,7 +151,14 @@ func main() {
 	secure.Use(middleware.AuditMiddleware(database))
 
 	issues.NewHandler(issueService, sharedCache).RegisterRoutes(secure)
-	ai.NewHandler(aiService, issueService).RegisterRoutes(secure)
+	ai.NewHandler(
+		aiService,
+		issueService,
+		cfg.AIFromTextEnabled,
+		cfg.AIFromTextLimitPerMin,
+		cfg.AIFromTextDailyQuota,
+		cfg.AIFromTextMaxChars,
+	).RegisterRoutes(secure)
 	organizations.NewHandler().RegisterRoutes(secure)
 	users.NewHandler(database, authzService).RegisterRoutes(secure)
 	projects.NewHandler().RegisterRoutes(secure)

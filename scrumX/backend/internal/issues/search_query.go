@@ -3,6 +3,7 @@ package issues
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/google/uuid"
 )
@@ -29,32 +30,95 @@ type issueSearchExpr struct {
 type issueSearchParser struct {
 	tokens []string
 	pos    int
+	depth  int
 }
 
+const (
+	maxIssueSearchLength  = 500
+	maxIssueSearchClauses = 25
+	maxIssueSearchDepth   = 5
+)
+
+var supportedIssueSearchFields = map[string]struct{}{
+	"status":   {},
+	"priority": {},
+	"type":     {},
+	"labels":   {},
+	"label":    {},
+	"sprint":   {},
+	"assignee": {},
+	"title":    {},
+	"project":  {},
+}
+
+type IssueSearchValidationError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Field   string `json:"field,omitempty"`
+	Token   string `json:"token,omitempty"`
+}
+
+func (e *IssueSearchValidationError) Error() string { return e.Message }
+
 func parseIssueSearchQuery(raw string) (*issueSearchExpr, IssueSearchAST, error) {
-	tokens := strings.Fields(strings.TrimSpace(raw))
+	query := strings.TrimSpace(raw)
+	if query == "" {
+		return nil, IssueSearchAST{}, &IssueSearchValidationError{
+			Code:    "query_required",
+			Message: "query is required",
+		}
+	}
+	if len(query) > maxIssueSearchLength {
+		return nil, IssueSearchAST{}, &IssueSearchValidationError{
+			Code:    "query_too_long",
+			Message: fmt.Sprintf("query exceeds maximum length of %d characters", maxIssueSearchLength),
+		}
+	}
+	tokens, err := tokenizeIssueSearchQuery(query)
+	if err != nil {
+		return nil, IssueSearchAST{}, err
+	}
 	if len(tokens) == 0 {
-		return nil, IssueSearchAST{}, fmt.Errorf("query is required")
+		return nil, IssueSearchAST{}, &IssueSearchValidationError{
+			Code:    "query_required",
+			Message: "query is required",
+		}
 	}
 	parser := issueSearchParser{tokens: tokens}
-	expr, err := parser.parseExpression()
+	expr, err := parser.parseExpression(1)
 	if err != nil {
 		return nil, IssueSearchAST{}, err
 	}
 	if parser.pos != len(tokens) {
-		return nil, IssueSearchAST{}, fmt.Errorf("unexpected token: %s", tokens[parser.pos])
+		return nil, IssueSearchAST{}, &IssueSearchValidationError{
+			Code:    "unexpected_token",
+			Message: fmt.Sprintf("unexpected token: %s", tokens[parser.pos]),
+			Token:   tokens[parser.pos],
+		}
+	}
+	if countConditions(expr) > maxIssueSearchClauses {
+		return nil, IssueSearchAST{}, &IssueSearchValidationError{
+			Code:    "too_many_clauses",
+			Message: fmt.Sprintf("query exceeds maximum of %d clauses", maxIssueSearchClauses),
+		}
 	}
 	return expr, expr.toAST(), nil
 }
 
-func (p *issueSearchParser) parseExpression() (*issueSearchExpr, error) {
-	left, err := p.parseAnd()
+func (p *issueSearchParser) parseExpression(depth int) (*issueSearchExpr, error) {
+	if depth > maxIssueSearchDepth {
+		return nil, &IssueSearchValidationError{
+			Code:    "max_depth_exceeded",
+			Message: fmt.Sprintf("query nesting exceeds maximum depth of %d", maxIssueSearchDepth),
+		}
+	}
+	left, err := p.parseAnd(depth)
 	if err != nil {
 		return nil, err
 	}
 	for p.hasToken() && strings.EqualFold(p.peek(), "OR") {
 		p.pos++
-		right, parseErr := p.parseAnd()
+		right, parseErr := p.parseAnd(depth)
 		if parseErr != nil {
 			return nil, parseErr
 		}
@@ -63,14 +127,14 @@ func (p *issueSearchParser) parseExpression() (*issueSearchExpr, error) {
 	return left, nil
 }
 
-func (p *issueSearchParser) parseAnd() (*issueSearchExpr, error) {
-	left, err := p.parseCondition()
+func (p *issueSearchParser) parseAnd(depth int) (*issueSearchExpr, error) {
+	left, err := p.parsePrimary(depth)
 	if err != nil {
 		return nil, err
 	}
 	for p.hasToken() && strings.EqualFold(p.peek(), "AND") {
 		p.pos++
-		right, parseErr := p.parseCondition()
+		right, parseErr := p.parsePrimary(depth)
 		if parseErr != nil {
 			return nil, parseErr
 		}
@@ -79,29 +143,73 @@ func (p *issueSearchParser) parseAnd() (*issueSearchExpr, error) {
 	return left, nil
 }
 
+func (p *issueSearchParser) parsePrimary(depth int) (*issueSearchExpr, error) {
+	if p.hasToken() && p.peek() == "(" {
+		p.pos++
+		expr, err := p.parseExpression(depth + 1)
+		if err != nil {
+			return nil, err
+		}
+		if !p.hasToken() || p.peek() != ")" {
+			return nil, &IssueSearchValidationError{
+				Code:    "missing_closing_paren",
+				Message: "missing closing parenthesis",
+			}
+		}
+		p.pos++
+		return expr, nil
+	}
+	return p.parseCondition()
+}
+
 func (p *issueSearchParser) parseCondition() (*issueSearchExpr, error) {
 	if !p.hasToken() {
-		return nil, fmt.Errorf("expected condition")
+		return nil, &IssueSearchValidationError{
+			Code:    "expected_condition",
+			Message: "expected condition",
+		}
 	}
 	token := p.peek()
-	if strings.EqualFold(token, "AND") || strings.EqualFold(token, "OR") {
-		return nil, fmt.Errorf("expected condition before %s", token)
+	if token == ")" {
+		return nil, &IssueSearchValidationError{
+			Code:    "unexpected_closing_paren",
+			Message: "unexpected closing parenthesis",
+			Token:   token,
+		}
+	}
+	if strings.EqualFold(token, "AND") || strings.EqualFold(token, "OR") || token == "(" {
+		return nil, &IssueSearchValidationError{
+			Code:    "expected_condition",
+			Message: fmt.Sprintf("expected condition before %s", token),
+			Token:   token,
+		}
 	}
 	p.pos++
-	parts := strings.SplitN(token, "=", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid condition: %s (expected field=value)", token)
+	field, op, value, err := parseIssueSearchConditionToken(token)
+	if err != nil {
+		return nil, err
 	}
-	field := strings.ToLower(strings.TrimSpace(parts[0]))
-	value := strings.TrimSpace(parts[1])
-	if field == "" || value == "" {
-		return nil, fmt.Errorf("invalid condition: %s (expected non-empty field and value)", token)
+	if _, ok := supportedIssueSearchFields[field]; !ok {
+		return nil, &IssueSearchValidationError{
+			Code:    "unsupported_field",
+			Message: fmt.Sprintf("unsupported search field: %s", field),
+			Field:   field,
+			Token:   token,
+		}
+	}
+	if op != "=" && op != "~" {
+		return nil, &IssueSearchValidationError{
+			Code:    "unsupported_operator",
+			Message: fmt.Sprintf("unsupported operator for %s: %s", field, op),
+			Field:   field,
+			Token:   token,
+		}
 	}
 	return &issueSearchExpr{
 		kind: "COND",
 		condition: IssueSearchCondition{
 			Field: field,
-			Op:    "=",
+			Op:    op,
 			Value: value,
 		},
 	}, nil
@@ -188,8 +296,16 @@ func buildIssueSearchSQL(expr *issueSearchExpr, actorID uuid.UUID, args *[]any, 
 func buildIssueConditionSQL(condition IssueSearchCondition, actorID uuid.UUID, args *[]any, argN *int) (string, error) {
 	field := strings.ToLower(strings.TrimSpace(condition.Field))
 	value := strings.TrimSpace(condition.Value)
-	if condition.Op != "=" {
-		return "", fmt.Errorf("unsupported operator for %s: %s", field, condition.Op)
+	op := strings.TrimSpace(condition.Op)
+	if op == "" {
+		op = "="
+	}
+	if op != "=" && op != "~" {
+		return "", &IssueSearchValidationError{
+			Code:    "unsupported_operator",
+			Message: fmt.Sprintf("unsupported operator for %s: %s", field, op),
+			Field:   field,
+		}
 	}
 
 	placeholder := func(v any) string {
@@ -201,17 +317,40 @@ func buildIssueConditionSQL(condition IssueSearchCondition, actorID uuid.UUID, a
 
 	switch field {
 	case "status":
+		if op == "~" {
+			return "i.status ILIKE " + placeholder("%"+escapeLikePattern(value)+"%") + " ESCAPE '\\'", nil
+		}
 		return "i.status = " + placeholder(strings.ToLower(value)), nil
 	case "priority":
+		if op == "~" {
+			return "i.priority ILIKE " + placeholder("%"+escapeLikePattern(value)+"%") + " ESCAPE '\\'", nil
+		}
 		return "i.priority = " + placeholder(strings.ToLower(value)), nil
 	case "type":
+		if op == "~" {
+			return "i.issue_type ILIKE " + placeholder("%"+escapeLikePattern(value)+"%") + " ESCAPE '\\'", nil
+		}
 		return "i.issue_type = " + placeholder(strings.ToLower(value)), nil
 	case "labels", "label":
+		if op == "~" {
+			return "EXISTS (SELECT 1 FROM issue_labels l WHERE l.org_id=i.org_id AND l.issue_id=i.id AND l.label ILIKE " + placeholder("%"+escapeLikePattern(strings.ToLower(value))+"%") + " ESCAPE '\\')", nil
+		}
 		return "EXISTS (SELECT 1 FROM issue_labels l WHERE l.org_id=i.org_id AND l.issue_id=i.id AND l.label=" + placeholder(strings.ToLower(value)) + ")", nil
 	case "sprint":
+		if op == "~" {
+			return "", &IssueSearchValidationError{
+				Code:    "unsupported_operator",
+				Message: "operator ~ is not supported for sprint",
+				Field:   field,
+			}
+		}
 		sprintID, err := uuid.Parse(value)
 		if err != nil {
-			return "", fmt.Errorf("invalid sprint value: %s", value)
+			return "", &IssueSearchValidationError{
+				Code:    "invalid_value",
+				Message: fmt.Sprintf("invalid sprint value: %s", value),
+				Field:   field,
+			}
 		}
 		return "i.sprint_id = " + placeholder(sprintID), nil
 	case "assignee":
@@ -222,12 +361,141 @@ func buildIssueConditionSQL(condition IssueSearchCondition, actorID uuid.UUID, a
 			}
 			return "i.assignee_id = " + placeholder(actorID), nil
 		}
+		if op == "~" {
+			return "", &IssueSearchValidationError{
+				Code:    "unsupported_operator",
+				Message: "operator ~ is not supported for assignee",
+				Field:   field,
+			}
+		}
 		assigneeID, err := uuid.Parse(value)
 		if err != nil {
-			return "", fmt.Errorf("invalid assignee value: %s", value)
+			return "", &IssueSearchValidationError{
+				Code:    "invalid_value",
+				Message: fmt.Sprintf("invalid assignee value: %s", value),
+				Field:   field,
+			}
 		}
 		return "i.assignee_id = " + placeholder(assigneeID), nil
+	case "title":
+		return "i.title ILIKE " + placeholder("%"+escapeLikePattern(value)+"%") + " ESCAPE '\\'", nil
+	case "project":
+		if op == "~" {
+			return "", &IssueSearchValidationError{
+				Code:    "unsupported_operator",
+				Message: "operator ~ is not supported for project",
+				Field:   field,
+			}
+		}
+		projectID, err := uuid.Parse(value)
+		if err != nil {
+			return "", &IssueSearchValidationError{
+				Code:    "invalid_value",
+				Message: fmt.Sprintf("invalid project value: %s", value),
+				Field:   field,
+			}
+		}
+		return "i.project_id = " + placeholder(projectID), nil
 	default:
-		return "", fmt.Errorf("unsupported search field: %s", condition.Field)
+		return "", &IssueSearchValidationError{
+			Code:    "unsupported_field",
+			Message: fmt.Sprintf("unsupported search field: %s", condition.Field),
+			Field:   condition.Field,
+		}
 	}
+}
+
+func tokenizeIssueSearchQuery(raw string) ([]string, error) {
+	tokens := make([]string, 0, 16)
+	var b strings.Builder
+	inQuotes := false
+	escaped := false
+	for _, r := range raw {
+		switch {
+		case escaped:
+			b.WriteRune(r)
+			escaped = false
+		case r == '\\':
+			escaped = true
+		case r == '"':
+			inQuotes = !inQuotes
+			b.WriteRune(r)
+		case !inQuotes && (unicode.IsSpace(r) || r == '(' || r == ')'):
+			if b.Len() > 0 {
+				tokens = append(tokens, b.String())
+				b.Reset()
+			}
+			if r == '(' || r == ')' {
+				tokens = append(tokens, string(r))
+			}
+		default:
+			b.WriteRune(r)
+		}
+	}
+	if escaped {
+		return nil, &IssueSearchValidationError{
+			Code:    "invalid_escape",
+			Message: "query ends with incomplete escape sequence",
+		}
+	}
+	if inQuotes {
+		return nil, &IssueSearchValidationError{
+			Code:    "unterminated_quote",
+			Message: "unterminated quoted string",
+		}
+	}
+	if b.Len() > 0 {
+		tokens = append(tokens, b.String())
+	}
+	return tokens, nil
+}
+
+func parseIssueSearchConditionToken(token string) (field, op, value string, err error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", "", "", &IssueSearchValidationError{
+			Code:    "invalid_condition",
+			Message: "empty condition token",
+		}
+	}
+	idx := strings.IndexAny(token, "=~")
+	if idx <= 0 || idx >= len(token)-1 {
+		return "", "", "", &IssueSearchValidationError{
+			Code:    "invalid_condition",
+			Message: fmt.Sprintf("invalid condition: %s (expected field=value or field~value)", token),
+			Token:   token,
+		}
+	}
+	field = strings.ToLower(strings.TrimSpace(token[:idx]))
+	op = strings.TrimSpace(token[idx : idx+1])
+	value = strings.TrimSpace(token[idx+1:])
+	value = unquoteIssueSearchValue(value)
+	if field == "" || value == "" {
+		return "", "", "", &IssueSearchValidationError{
+			Code:    "invalid_condition",
+			Message: fmt.Sprintf("invalid condition: %s (expected non-empty field and value)", token),
+			Token:   token,
+		}
+	}
+	return field, op, value, nil
+}
+
+func unquoteIssueSearchValue(v string) string {
+	if len(v) >= 2 && strings.HasPrefix(v, "\"") && strings.HasSuffix(v, "\"") {
+		v = strings.TrimPrefix(v, "\"")
+		v = strings.TrimSuffix(v, "\"")
+		v = strings.ReplaceAll(v, `\"`, `"`)
+		v = strings.ReplaceAll(v, `\\`, `\`)
+	}
+	return strings.TrimSpace(v)
+}
+
+func countConditions(expr *issueSearchExpr) int {
+	if expr == nil {
+		return 0
+	}
+	if expr.kind == "COND" {
+		return 1
+	}
+	return countConditions(expr.left) + countConditions(expr.right)
 }

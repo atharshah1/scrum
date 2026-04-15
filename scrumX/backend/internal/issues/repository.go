@@ -240,7 +240,196 @@ FROM issues i WHERE ` + whereClause + ` ORDER BY i.updated_at DESC LIMIT $` + it
 	for i := range issues {
 		issues[i].Labels = labelsByIssue[issues[i].ID]
 	}
-	return issues, total, ast, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, IssueSearchAST{}, err
+	}
+	_ = r.RecordRecentQuery(ctx, orgID, actorID, rawQuery)
+	return issues, total, ast, nil
+}
+
+func (r *Repository) SaveQuery(ctx context.Context, orgID, userID uuid.UUID, name, query string) (SavedIssueQuery, error) {
+	now := time.Now().UTC()
+	saved := SavedIssueQuery{
+		ID:        uuid.New(),
+		OrgID:     orgID,
+		UserID:    userID,
+		Name:      strings.TrimSpace(name),
+		Query:     strings.TrimSpace(query),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if _, err := r.db.ExecContext(ctx, `
+INSERT INTO issue_saved_queries (id, org_id, user_id, name, query, created_at, updated_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7)
+ON CONFLICT (org_id, user_id, name)
+DO UPDATE SET query=EXCLUDED.query, updated_at=EXCLUDED.updated_at
+`, saved.ID, saved.OrgID, saved.UserID, saved.Name, saved.Query, saved.CreatedAt, saved.UpdatedAt); err != nil {
+		return SavedIssueQuery{}, err
+	}
+	row := r.db.QueryRowContext(ctx, `
+SELECT id, org_id, user_id, name, query, created_at, updated_at
+FROM issue_saved_queries
+WHERE org_id=$1 AND user_id=$2 AND name=$3
+`, orgID, userID, saved.Name)
+	if err := row.Scan(&saved.ID, &saved.OrgID, &saved.UserID, &saved.Name, &saved.Query, &saved.CreatedAt, &saved.UpdatedAt); err != nil {
+		return SavedIssueQuery{}, err
+	}
+	return saved, nil
+}
+
+func (r *Repository) ListSavedQueries(ctx context.Context, orgID, userID uuid.UUID) ([]SavedIssueQuery, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT id, org_id, user_id, name, query, created_at, updated_at
+FROM issue_saved_queries
+WHERE org_id=$1 AND user_id=$2
+ORDER BY updated_at DESC, created_at DESC
+`, orgID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []SavedIssueQuery{}
+	for rows.Next() {
+		var item SavedIssueQuery
+		if err := rows.Scan(&item.ID, &item.OrgID, &item.UserID, &item.Name, &item.Query, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (r *Repository) DeleteSavedQuery(ctx context.Context, orgID, userID, savedQueryID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `
+DELETE FROM issue_saved_queries
+WHERE id=$1 AND org_id=$2 AND user_id=$3
+`, savedQueryID, orgID, userID)
+	return err
+}
+
+func (r *Repository) RecordRecentQuery(ctx context.Context, orgID, userID uuid.UUID, query string) error {
+	trimmed := strings.TrimSpace(query)
+	if userID == uuid.Nil || trimmed == "" {
+		return nil
+	}
+	_, err := r.db.ExecContext(ctx, `
+INSERT INTO issue_recent_queries (org_id, user_id, query, last_used_at)
+VALUES ($1,$2,$3,NOW())
+ON CONFLICT (org_id, user_id, query)
+DO UPDATE SET last_used_at=EXCLUDED.last_used_at
+`, orgID, userID, trimmed)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, `
+DELETE FROM issue_recent_queries
+WHERE org_id=$1 AND user_id=$2
+AND query NOT IN (
+  SELECT query FROM issue_recent_queries
+  WHERE org_id=$1 AND user_id=$2
+  ORDER BY last_used_at DESC
+  LIMIT 20
+)
+`, orgID, userID)
+	return err
+}
+
+func (r *Repository) ListRecentQueries(ctx context.Context, orgID, userID uuid.UUID, limit int) ([]RecentIssueQuery, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	rows, err := r.db.QueryContext(ctx, `
+SELECT query, last_used_at
+FROM issue_recent_queries
+WHERE org_id=$1 AND user_id=$2
+ORDER BY last_used_at DESC
+LIMIT $3
+`, orgID, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []RecentIssueQuery{}
+	for rows.Next() {
+		var item RecentIssueQuery
+		if err := rows.Scan(&item.Query, &item.LastUsedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (r *Repository) SearchSuggestions(ctx context.Context, orgID, userID uuid.UUID) (IssueSearchSuggestions, error) {
+	s := IssueSearchSuggestions{
+		Fields:     []string{"status", "assignee", "priority", "label", "sprint", "type", "title", "project"},
+		Statuses:   []string{"todo", "in_progress", "done"},
+		Priorities: []string{"low", "medium", "high", "critical"},
+		Types:      []string{"task", "story", "bug", "epic"},
+		Labels:     []string{},
+		Assignees:  []IssueAssignee{},
+	}
+
+	labelRows, err := r.db.QueryContext(ctx, `
+SELECT DISTINCT label
+FROM issue_labels
+WHERE org_id=$1 AND label <> ''
+ORDER BY label ASC
+LIMIT 50
+`, orgID)
+	if err != nil {
+		return IssueSearchSuggestions{}, err
+	}
+	for labelRows.Next() {
+		var label string
+		if err := labelRows.Scan(&label); err != nil {
+			labelRows.Close()
+			return IssueSearchSuggestions{}, err
+		}
+		s.Labels = append(s.Labels, label)
+	}
+	if err := labelRows.Err(); err != nil {
+		labelRows.Close()
+		return IssueSearchSuggestions{}, err
+	}
+	labelRows.Close()
+
+	assigneeRows, err := r.db.QueryContext(ctx, `
+SELECT u.id, u.email, COALESCE(u.full_name, '')
+FROM users u
+JOIN memberships m ON m.org_id=u.org_id AND m.user_id=u.id
+WHERE u.org_id=$1
+ORDER BY u.email ASC
+LIMIT 50
+`, orgID)
+	if err != nil {
+		return IssueSearchSuggestions{}, err
+	}
+	for assigneeRows.Next() {
+		var user IssueAssignee
+		if err := assigneeRows.Scan(&user.ID, &user.Email, &user.FullName); err != nil {
+			assigneeRows.Close()
+			return IssueSearchSuggestions{}, err
+		}
+		s.Assignees = append(s.Assignees, user)
+	}
+	if err := assigneeRows.Err(); err != nil {
+		assigneeRows.Close()
+		return IssueSearchSuggestions{}, err
+	}
+	assigneeRows.Close()
+
+	saved, err := r.ListSavedQueries(ctx, orgID, userID)
+	if err != nil {
+		return IssueSearchSuggestions{}, err
+	}
+	recent, err := r.ListRecentQueries(ctx, orgID, userID, 20)
+	if err != nil {
+		return IssueSearchSuggestions{}, err
+	}
+	s.Saved = saved
+	s.Recent = recent
+	return s, nil
 }
 
 func (r *Repository) Update(ctx context.Context, orgID, issueID uuid.UUID, input UpdateIssueInput) (Issue, error) {

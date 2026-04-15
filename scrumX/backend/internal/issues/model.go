@@ -68,6 +68,38 @@ type ListIssuesFilter struct {
 	Limit       int
 }
 
+type SavedIssueQuery struct {
+	ID        uuid.UUID `json:"id"`
+	OrgID     uuid.UUID `json:"org_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Name      string    `json:"name"`
+	Query     string    `json:"query"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type RecentIssueQuery struct {
+	Query      string    `json:"query"`
+	LastUsedAt time.Time `json:"last_used_at"`
+}
+
+type IssueSearchSuggestions struct {
+	Fields     []string         `json:"fields"`
+	Statuses   []string         `json:"statuses"`
+	Priorities []string         `json:"priorities"`
+	Types      []string         `json:"types"`
+	Labels     []string         `json:"labels"`
+	Assignees  []IssueAssignee  `json:"assignees"`
+	Saved      []SavedIssueQuery `json:"saved,omitempty"`
+	Recent     []RecentIssueQuery `json:"recent,omitempty"`
+}
+
+type IssueAssignee struct {
+	ID       uuid.UUID `json:"id"`
+	Email    string    `json:"email"`
+	FullName string    `json:"full_name"`
+}
+
 type IssueComment struct {
 	ID        uuid.UUID `json:"id"`
 	OrgID     uuid.UUID `json:"org_id"`
