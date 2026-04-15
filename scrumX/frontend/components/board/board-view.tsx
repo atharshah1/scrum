@@ -117,7 +117,9 @@ export function BoardView({ boardId, board, transitions }: { boardId: string; bo
 function BoardColumnCard({ column, transitions }: { column: Board['columns'][number]; transitions: WorkflowTransition[] }) {
   const targetStatus = column.statuses[0] ?? column.name.toLowerCase();
   const { setNodeRef, isOver } = useDroppable({ id: targetStatus });
-  const [visibleCount, setVisibleCount] = useState(80);
+  // Render in 80-item chunks to keep large columns responsive without full virtualization yet.
+  const ISSUE_BATCH_SIZE = 80;
+  const [visibleCount, setVisibleCount] = useState(ISSUE_BATCH_SIZE);
   const visibleIssues = column.issues.slice(0, visibleCount);
   const hasMore = column.issues.length > visibleCount;
 
@@ -138,9 +140,9 @@ function BoardColumnCard({ column, transitions }: { column: Board['columns'][num
             <button
               type="button"
               className="w-full rounded-md border border-dashed p-2 text-xs text-muted-foreground hover:bg-accent"
-              onClick={() => setVisibleCount((count) => count + 80)}
+              onClick={() => setVisibleCount((count) => count + ISSUE_BATCH_SIZE)}
             >
-              Show 80 more issues
+              Show {ISSUE_BATCH_SIZE} more issues
             </button>
           ) : null}
         </CardContent>

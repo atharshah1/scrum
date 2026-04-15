@@ -101,6 +101,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
         }),
         defaultOptions: {
           queries: {
+            // Baseline defaults for general CRUD screens: responsive enough for collaboration,
+            // while avoiding excessive refetch churn for large workspaces.
             staleTime: 30_000,
             gcTime: 600_000,
             retry: 2,

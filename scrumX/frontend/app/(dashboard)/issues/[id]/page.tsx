@@ -100,13 +100,16 @@ export default function IssueDetailPage() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTypingTarget =
+        target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
         if (editing) {
           updateIssue.mutate();
         }
       }
-      if (event.key.toLowerCase() === 'e' && !event.metaKey && !event.ctrlKey) {
+      if (!isTypingTarget && event.key.toLowerCase() === 'e' && !event.metaKey && !event.ctrlKey) {
         setEditing((value) => !value);
       }
     };
