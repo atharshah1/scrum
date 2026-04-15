@@ -107,7 +107,7 @@ export function AutomationBuilder() {
             <div className="space-y-2 rounded-md border p-3">
               <div className="text-xs font-medium text-muted-foreground">Conditions (AND chain)</div>
               {conditions.map((condition, index) => (
-                <div key={`${condition.field}-${index}`} className="grid gap-2 md:grid-cols-[1fr_120px_1fr_auto]">
+                <div key={`condition-${index}`} className="grid gap-2 md:grid-cols-[1fr_120px_1fr_auto]">
                   <Input
                     value={condition.field}
                     onChange={(e) =>
@@ -147,7 +147,7 @@ export function AutomationBuilder() {
             <div className="space-y-2 rounded-md border p-3">
               <div className="text-xs font-medium text-muted-foreground">Actions</div>
               {actions.map((action, index) => (
-                <div key={`${action.type}-${index}`} className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                <div key={`action-${index}`} className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
                   <Input
                     value={action.type}
                     onChange={(e) =>

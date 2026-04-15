@@ -2,6 +2,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import type { ApiResponse, Tokens } from '@/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080/api/v1';
+const RETRY_DELAY_BASE_MS = 150;
 
 type RequestOptions = RequestInit & { skipAuth?: boolean; retry?: number };
 
@@ -81,7 +82,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       if (attempt >= retry) {
         throw error;
       }
-      await new Promise((resolve) => setTimeout(resolve, 150 * 2 ** attempt));
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_BASE_MS * 2 ** attempt));
       attempt += 1;
     }
   }

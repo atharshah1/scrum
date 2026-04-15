@@ -24,10 +24,14 @@ const COLORS: Record<ToastVariant, string> = {
   error: 'border-red-200 bg-red-50 text-red-900'
 };
 
+function generateId() {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
   push: (toast) => {
-    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const id = generateId();
     set((state) => ({ toasts: [...state.toasts, { ...toast, id }] }));
     setTimeout(() => {
       set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) }));

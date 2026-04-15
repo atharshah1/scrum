@@ -11,7 +11,12 @@ class RealtimeClient {
   connect() {
     if (typeof window === 'undefined' || this.ws) return;
     this.shouldReconnect = true;
-    const fallback = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080/api/v1').replace('/api/v1', '/ws').replace('http', 'ws');
+    const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080/api/v1').replace('/api/v1', '/ws');
+    const fallback = apiUrl.startsWith('https://')
+      ? apiUrl.replace('https://', 'wss://')
+      : apiUrl.startsWith('http://')
+        ? apiUrl.replace('http://', 'ws://')
+        : apiUrl;
     const endpoint = process.env.NEXT_PUBLIC_WS_URL ?? fallback;
 
     this.ws = new WebSocket(endpoint);

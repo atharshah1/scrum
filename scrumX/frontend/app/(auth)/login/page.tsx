@@ -15,7 +15,7 @@ export default function LoginPage() {
     { email: '', password: '' },
     {
       email: [required('Email'), email('Email')],
-      password: [required('Password'), minLength('Password', 6)]
+      password: [required('Password'), minLength('Password', 8)]
     }
   );
 

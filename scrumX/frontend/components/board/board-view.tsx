@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from '@/components/ui/toast';
 import { apiRequest } from '@/lib/api';
+import { formatAssignee } from '@/lib/format';
 import { qk } from '@/lib/query-keys';
 import type { Board, Issue, WorkflowTransition } from '@/types';
 
@@ -147,7 +148,7 @@ function IssueCard({ issue, transitions }: { issue: Issue; transitions: Workflow
     >
       <div className="font-medium">{issue.title}</div>
       <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-        <span>{issue.assignee_id ? `@${issue.assignee_id.slice(0, 6)}` : 'Unassigned'}</span>
+        <span>{formatAssignee(issue.assignee_id)}</span>
         <div className="flex gap-1">
           {(issue.labels ?? []).slice(0, 2).map((label) => (
             <Badge key={label}>{label}</Badge>
@@ -156,7 +157,9 @@ function IssueCard({ issue, transitions }: { issue: Issue; transitions: Workflow
       </div>
       <div className="mt-2 flex flex-wrap gap-1">
         {allowedStatuses.map((status) => (
-          <Badge key={status} className="bg-slate-100 text-slate-700">→ {status}</Badge>
+          <Badge key={status} className="bg-slate-100 text-slate-700">
+            <span aria-hidden>→</span> <span className="sr-only">Transition to </span>{status}
+          </Badge>
         ))}
       </div>
     </div>

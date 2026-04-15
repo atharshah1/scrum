@@ -12,6 +12,7 @@ import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { apiRequest } from '@/lib/api';
+import { formatAssignee } from '@/lib/format';
 import { qk } from '@/lib/query-keys';
 import type { Issue, IssueComment, WorkflowTransition } from '@/types';
 
@@ -110,7 +111,7 @@ export default function IssueDetailPage() {
             <Textarea defaultValue={issue?.description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" />
             <div className="flex items-center gap-2">
               <Badge>{issue?.status ?? 'unknown'}</Badge>
-              <Badge>{issue?.assignee_id ? `@${issue.assignee_id.slice(0, 8)}` : 'Unassigned'}</Badge>
+              <Badge>{formatAssignee(issue?.assignee_id)}</Badge>
             </div>
             <div className="grid gap-2 md:grid-cols-[1fr_auto]">
               <Select value={nextStatus} onChange={(e) => setNextStatus(e.target.value)}>
