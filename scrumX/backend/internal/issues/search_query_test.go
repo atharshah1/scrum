@@ -1,6 +1,7 @@
 package issues
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -115,5 +116,26 @@ func TestBuildIssueConditionSQL_TitleExact(t *testing.T) {
 	}
 	if len(args) != 1 || args[0] != "payment bug" {
 		t.Fatalf("expected exact value arg, got %#v", args)
+	}
+}
+
+func TestBuildIssueConditionSQL_TitleFuzzyCapsPatternLength(t *testing.T) {
+	args := []any{}
+	argN := 1
+	_, err := buildIssueConditionSQL(
+		IssueSearchCondition{Field: "title", Op: "~", Value: strings.Repeat("a", 100)},
+		uuid.New(),
+		&args,
+		&argN,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	pattern, ok := args[0].(string)
+	if !ok {
+		t.Fatalf("expected string pattern arg, got %#v", args[0])
+	}
+	if len(pattern) > 129 {
+		t.Fatalf("expected capped fuzzy pattern length <=129, got %d", len(pattern))
 	}
 }

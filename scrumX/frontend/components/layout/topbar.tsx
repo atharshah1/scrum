@@ -32,9 +32,11 @@ function scoreSuggestion(item: string, token: string): number | null {
   for (const ch of normalizedToken) {
     const idx = value.indexOf(ch, cursor);
     if (idx === -1) return null;
+    // Penalize larger jumps between matched characters to favor tighter matches.
     score += idx - cursor;
     cursor = idx + 1;
   }
+  // Penalize much longer candidates when fuzzy score is otherwise similar.
   score += value.length - normalizedToken.length;
   return score;
 }

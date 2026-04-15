@@ -37,6 +37,7 @@ const (
 	maxIssueSearchLength  = 500
 	maxIssueSearchClauses = 25
 	maxIssueSearchDepth   = 5
+	maxFuzzyPatternRunes  = 64
 )
 
 var supportedIssueSearchFields = map[string]struct{}{
@@ -416,7 +417,11 @@ func buildFuzzyLikePattern(value string) string {
 	var b strings.Builder
 	b.WriteByte('%')
 	lastWildcard := true
+	processed := 0
 	for _, r := range normalized {
+		if processed >= maxFuzzyPatternRunes {
+			break
+		}
 		if unicode.IsSpace(r) {
 			if !lastWildcard {
 				b.WriteByte('%')
@@ -428,6 +433,7 @@ func buildFuzzyLikePattern(value string) string {
 		b.WriteString(escaped)
 		b.WriteByte('%')
 		lastWildcard = true
+		processed++
 	}
 	return b.String()
 }
