@@ -122,7 +122,7 @@ export function Topbar() {
             }
           }}
           onChange={(event) => setJqlSearch(event.target.value)}
-          placeholder='JQL search (e.g. status=done AND assignee=me)'
+          placeholder="JQL search (e.g. status=done AND assignee=me)"
         />
         <select
           className="max-w-40 rounded border bg-transparent px-1 py-1 text-xs"
