@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { apiRequest } from '@/lib/api';
+import { comingSoonContent, features } from '@/lib/features';
 import { qk } from '@/lib/query-keys';
 import type { Board, StuckInsightResponse, WorkflowTransition } from '@/types';
 
@@ -49,7 +50,7 @@ export default function BoardPage() {
       apiRequest<StuckInsightResponse>(
         `/insights/stuck?project_id=${boardQuery.data?.project_id ?? ''}&threshold_days=${STUCK_THRESHOLD_DAYS}`
       ),
-    enabled: !!boardQuery.data?.project_id
+    enabled: features.INSIGHTS && !!boardQuery.data?.project_id
   });
 
   const filteredBoard = useMemo(() => {
@@ -91,7 +92,14 @@ export default function BoardPage() {
 
   return (
     <div className="space-y-3">
-      {(stuckQuery.data?.items.length ?? 0) > 0 ? (
+      {!features.INSIGHTS ? (
+        <Card>
+          <CardContent className="p-3 text-sm text-muted-foreground">
+            {comingSoonContent.INSIGHTS.description} {comingSoonContent.INSIGHTS.hint}
+          </CardContent>
+        </Card>
+      ) : null}
+      {features.INSIGHTS && (stuckQuery.data?.items.length ?? 0) > 0 ? (
         <Card>
           <CardContent className="flex items-center justify-between gap-3 p-3 text-sm">
             <span>⚠ {stuckQuery.data?.items.length} stuck tasks older than {stuckQuery.data?.threshold_days ?? STUCK_THRESHOLD_DAYS} days.</span>

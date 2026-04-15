@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { apiRequest } from '@/lib/api';
+import { comingSoonContent, features } from '@/lib/features';
 import { qk } from '@/lib/query-keys';
 import type { Board, CycleTimeInsight, Issue, IssueComment, WorkflowTransition } from '@/types';
 
@@ -53,6 +54,7 @@ export default function IssueDetailPage() {
 
   const cycleTimeQuery = useQuery({
     queryKey: qk.insightsCycleTime(issueId),
+    enabled: features.INSIGHTS,
     queryFn: () => apiRequest<CycleTimeInsight>(`/insights/cycle-time?issue_id=${issueId}`)
   });
 
@@ -210,7 +212,7 @@ export default function IssueDetailPage() {
 
             <div className="flex items-center gap-2">
               <Badge>{issue?.status ?? 'unknown'}</Badge>
-              <Badge>⏱ Cycle time: {(cycleTimeQuery.data?.avg_days ?? 0).toFixed(1)} days</Badge>
+              {features.INSIGHTS ? <Badge>⏱ Cycle time: {(cycleTimeQuery.data?.avg_days ?? 0).toFixed(1)} days</Badge> : null}
             </div>
 
             <div className="grid gap-2 md:grid-cols-[1fr_auto]">
@@ -226,11 +228,22 @@ export default function IssueDetailPage() {
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => toast({ title: 'AI Summary', description: 'Coming soon 🚧' })}>✨ Summarize</Button>
-              <Button variant="outline" onClick={() => toast({ title: 'AI Suggestions', description: 'Coming soon 🚧' })}>✨ Suggest Fields</Button>
+              <Button
+                variant="outline"
+                onClick={() => toast({ title: comingSoonContent.AI.title, description: `${comingSoonContent.AI.description} ${comingSoonContent.AI.hint}` })}
+              >
+                ✨ Summarize
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => toast({ title: comingSoonContent.AI.title, description: `${comingSoonContent.AI.description} ${comingSoonContent.AI.hint}` })}
+              >
+                ✨ Suggest Fields
+              </Button>
               <Button variant="outline" onClick={() => timeMutation.mutate('start')}>Start timer</Button>
               <Button variant="outline" onClick={() => timeMutation.mutate('stop')}>Stop timer</Button>
             </div>
+            {!features.AI ? <p className="text-xs text-muted-foreground">{comingSoonContent.AI.description} {comingSoonContent.AI.hint}</p> : null}
           </CardContent>
         </Card>
 

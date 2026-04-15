@@ -8,13 +8,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { apiRequest } from '@/lib/api';
+import { comingSoonContent, features, getAIIssueDraftMocks } from '@/lib/features';
 import { qk } from '@/lib/query-keys';
-import type { Issue } from '@/types';
+import type { AIIssueDraft, Issue } from '@/types';
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const projectId = params.id;
   const [text, setText] = useState('');
+  const [mockDrafts, setMockDrafts] = useState<AIIssueDraft[]>([]);
 
   const issuesQuery = useQuery({
     queryKey: qk.issues(`project-${projectId}`),
@@ -32,16 +34,41 @@ export default function ProjectDetailPage() {
             placeholder="Describe what needs to be built..."
           />
           <Button
-            onClick={() =>
+            onClick={() => {
+              if (!features.AI) {
+                const mocks = getAIIssueDraftMocks(text);
+                setMockDrafts(mocks);
+                toast({
+                  title: comingSoonContent.AI.title,
+                  description: `${comingSoonContent.AI.description} ${comingSoonContent.AI.hint}`
+                });
+                return;
+              }
               toast({
                 title: 'AI Issue Generation',
-                description: 'Coming soon 🚧. This button is intentionally non-blocking for current workflows.'
-              })
-            }
+                description: 'Feature flag is enabled, but API workflow is still being finalized.'
+              });
+            }}
             disabled={!text.trim()}
           >
             ✨ Generate Issues
           </Button>
+          {!features.AI ? (
+            <p className="text-xs text-muted-foreground">
+              {comingSoonContent.AI.description} {comingSoonContent.AI.hint}
+            </p>
+          ) : null}
+          {!features.AI && mockDrafts.length ? (
+            <div className="space-y-2 rounded-md border p-3 text-sm">
+              <p className="text-xs font-medium text-muted-foreground">Dev mock preview</p>
+              {mockDrafts.map((draft, index) => (
+                <div key={`${draft.title}-${index}`} className="rounded-md border p-2">
+                  <p className="font-medium">{draft.title}</p>
+                  <p className="text-xs text-muted-foreground">{draft.description}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

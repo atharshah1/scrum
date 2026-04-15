@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiRequest } from '@/lib/api';
+import { comingSoonContent, features } from '@/lib/features';
 import { qk } from '@/lib/query-keys';
 import type { BottleneckInsight, Issue, VelocityInsight } from '@/types';
 
@@ -17,10 +18,12 @@ export default function DashboardPage() {
   });
   const velocityQuery = useQuery({
     queryKey: qk.insightsVelocity('dashboard'),
+    enabled: features.INSIGHTS,
     queryFn: () => apiRequest<VelocityInsight>('/insights/velocity')
   });
   const bottleneckQuery = useQuery({
     queryKey: qk.insightsBottleneck('dashboard'),
+    enabled: features.INSIGHTS,
     queryFn: () => apiRequest<BottleneckInsight>('/insights/bottlenecks')
   });
 
@@ -48,22 +51,31 @@ export default function DashboardPage() {
           </>
         )}
       </div>
-      <div className="grid gap-4 md:grid-cols-2">
+      {features.INSIGHTS ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader><CardTitle>Velocity</CardTitle></CardHeader>
+            <CardContent className="text-sm">
+              <p className="text-2xl font-semibold">{velocityQuery.data?.current ?? 0}</p>
+              <p className="text-muted-foreground">📈 Trend: {(velocityQuery.data?.trend ?? []).join(' → ') || 'No sprint data'}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Bottleneck</CardTitle></CardHeader>
+            <CardContent className="text-sm">
+              <p className="text-2xl font-semibold">{bottleneckQuery.data?.status || 'none'}</p>
+              <p className="text-muted-foreground">⚠️ Avg {Number(bottleneckQuery.data?.avg_days ?? 0).toFixed(1)} days</p>
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
         <Card>
-          <CardHeader><CardTitle>Velocity</CardTitle></CardHeader>
-          <CardContent className="text-sm">
-            <p className="text-2xl font-semibold">{velocityQuery.data?.current ?? 0}</p>
-            <p className="text-muted-foreground">📈 Trend: {(velocityQuery.data?.trend ?? []).join(' → ') || 'No sprint data'}</p>
+          <CardHeader><CardTitle>{comingSoonContent.INSIGHTS.title}</CardTitle></CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {comingSoonContent.INSIGHTS.description} {comingSoonContent.INSIGHTS.hint}
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader><CardTitle>Bottleneck</CardTitle></CardHeader>
-          <CardContent className="text-sm">
-            <p className="text-2xl font-semibold">{bottleneckQuery.data?.status || 'none'}</p>
-            <p className="text-muted-foreground">⚠️ Avg {Number(bottleneckQuery.data?.avg_days ?? 0).toFixed(1)} days</p>
-          </CardContent>
-        </Card>
-      </div>
+      )}
       <Card>
         <CardHeader><CardTitle>Activity feed</CardTitle></CardHeader>
         <CardContent className="space-y-2 text-sm">
