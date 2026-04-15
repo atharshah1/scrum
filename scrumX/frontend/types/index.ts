@@ -53,6 +53,23 @@ export type IssueComment = {
   created_at: string;
 };
 
+export type AIIssueDraft = {
+  title: string;
+  description?: string;
+  type: 'epic' | 'story' | 'task' | 'bug';
+  priority: 'low' | 'medium' | 'high';
+};
+
+export type AISuggestion = {
+  priority: 'low' | 'medium' | 'high';
+  labels: string[];
+  type: 'epic' | 'story' | 'task' | 'bug';
+};
+
+export type AISummary = {
+  summary: string;
+};
+
 export type BoardColumn = {
   id?: string;
   name: string;

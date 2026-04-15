@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { apiRequest } from '@/lib/api';
 import { formatAssignee } from '@/lib/format';
 import { qk } from '@/lib/query-keys';
-import type { Board, Issue, IssueComment, WorkflowTransition } from '@/types';
+import type { AISuggestion, AISummary, Board, Issue, IssueComment, WorkflowTransition } from '@/types';
 
 const defaultTransitions: WorkflowTransition[] = [
   { id: 'todo-in-progress', from_status: 'todo', to_status: 'in_progress', conditions: {}, validators: {}, post_functions: {} },
@@ -33,6 +33,12 @@ export default function IssueDetailPage() {
   const [description, setDescription] = useState('');
   const [nextStatus, setNextStatus] = useState('');
   const [editing, setEditing] = useState(false);
+  const [pendingSuggestion, setPendingSuggestion] = useState<AISuggestion | null>(null);
+  const [ignoredSuggestionFields, setIgnoredSuggestionFields] = useState<Record<'type' | 'priority' | 'labels', boolean>>({
+    type: false,
+    priority: false,
+    labels: false
+  });
 
   const issueQuery = useQuery({
     queryKey: qk.issue(issueId),
@@ -57,11 +63,17 @@ export default function IssueDetailPage() {
 
   const transitions = transitionsQuery.data?.length ? transitionsQuery.data : defaultTransitions;
 
+  const issueSummaryQuery = useQuery({
+    queryKey: qk.issueSummary(issueId),
+    enabled: false,
+    queryFn: () => apiRequest<AISummary>(`/ai/issues/${issueId}/summarize`, { method: 'POST' })
+  });
+
   const updateIssue = useMutation({
-    mutationFn: async () =>
+    mutationFn: async (payload: Record<string, unknown>) =>
       apiRequest<Issue>(`/issues/${issueId}`, {
         method: 'PATCH',
-        body: JSON.stringify({ title: title || undefined, description: description || undefined })
+        body: JSON.stringify(payload)
       }),
     onSuccess: (updatedIssue) => {
       queryClient.setQueryData(qk.issue(issueId), updatedIssue);
@@ -96,6 +108,16 @@ export default function IssueDetailPage() {
     mutationFn: async (mode: 'start' | 'stop') => apiRequest(`/time/${mode}`, { method: 'POST', body: JSON.stringify({ issue_id: issueId }) })
   });
 
+  const suggestFieldsMutation = useMutation({
+    mutationFn: async (payload: { title: string; description: string }) =>
+      apiRequest<AISuggestion>('/ai/issues/suggest', { method: 'POST', body: JSON.stringify(payload) }),
+    onSuccess: (suggestion) => {
+      setPendingSuggestion(suggestion);
+      setIgnoredSuggestionFields({ type: false, priority: false, labels: false });
+      queryClient.setQueryData(qk.issueSuggestion(issueId), suggestion);
+    }
+  });
+
   const issue = issueQuery.data;
 
   useEffect(() => {
@@ -106,7 +128,10 @@ export default function IssueDetailPage() {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
         if (editing) {
-          updateIssue.mutate();
+          updateIssue.mutate({
+            title: title || issue?.title || undefined,
+            description: description || issue?.description || undefined
+          });
         }
       }
       if (!isTypingTarget && event.key.toLowerCase() === 'e' && !event.metaKey && !event.ctrlKey) {
@@ -115,7 +140,7 @@ export default function IssueDetailPage() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [editing, updateIssue]);
+  }, [description, editing, issue?.description, issue?.title, title, updateIssue]);
   const allowedTransitions = useMemo(
     () => transitions.filter((transition) => transition.from_status === issue?.status).map((transition) => transition.to_status),
     [issue?.status, transitions]
@@ -138,6 +163,12 @@ export default function IssueDetailPage() {
           <CardContent className="space-y-3">
             <Input defaultValue={issue?.title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" readOnly={!editing} />
             <Textarea defaultValue={issue?.description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" readOnly={!editing} />
+            {issueSummaryQuery.data?.summary ? (
+              <div className="rounded-md border bg-accent/40 p-3 text-sm">
+                <div className="mb-1 font-medium">AI Summary</div>
+                <div>{issueSummaryQuery.data.summary}</div>
+              </div>
+            ) : null}
             <div className="flex items-center gap-2">
               <Badge>{issue?.status ?? 'unknown'}</Badge>
               <Badge>{formatAssignee(issue?.assignee_id)}</Badge>
@@ -158,11 +189,96 @@ export default function IssueDetailPage() {
               </Button>
             </div>
             <div className="flex gap-2">
-              <Button onClick={() => updateIssue.mutate()} disabled={updateIssue.isPending || !editing}>Update issue</Button>
+              <Button
+                onClick={() =>
+                  updateIssue.mutate({
+                    title: title || issue?.title || undefined,
+                    description: description || issue?.description || undefined
+                  })
+                }
+                disabled={updateIssue.isPending || !editing}
+              >
+                Update issue
+              </Button>
               <Button variant="outline" onClick={() => setEditing((v) => !v)}>{editing ? 'View mode' : 'Quick edit (E)'}</Button>
+              <Button variant="outline" onClick={() => issueSummaryQuery.refetch()} disabled={issueSummaryQuery.isFetching}>✨ Summarize</Button>
+              <Button
+                variant="outline"
+                onClick={() =>
+                  suggestFieldsMutation.mutate({
+                    title: title || issue?.title || '',
+                    description: description || issue?.description || ''
+                  })
+                }
+                disabled={suggestFieldsMutation.isPending}
+              >
+                ✨ Suggest Fields
+              </Button>
               <Button variant="outline" onClick={() => timeMutation.mutate('start')}>Start timer</Button>
               <Button variant="outline" onClick={() => timeMutation.mutate('stop')}>Stop timer</Button>
             </div>
+            {pendingSuggestion ? (
+              <div className="space-y-2 rounded-md border p-3 text-sm">
+                <div className="font-medium">AI field suggestions</div>
+                {!ignoredSuggestionFields.type ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Type: {pendingSuggestion.type}</span>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          updateIssue.mutate({ issue_type: pendingSuggestion.type });
+                          setIgnoredSuggestionFields((current) => ({ ...current, type: true }));
+                        }}
+                      >
+                        Apply
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setIgnoredSuggestionFields((current) => ({ ...current, type: true }))}>
+                        Ignore
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+                {!ignoredSuggestionFields.priority ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Priority: {pendingSuggestion.priority}</span>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          updateIssue.mutate({ priority: pendingSuggestion.priority });
+                          setIgnoredSuggestionFields((current) => ({ ...current, priority: true }));
+                        }}
+                      >
+                        Apply
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setIgnoredSuggestionFields((current) => ({ ...current, priority: true }))}>
+                        Ignore
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+                {!ignoredSuggestionFields.labels ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Labels: {(pendingSuggestion.labels ?? []).join(', ') || 'none'}</span>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          updateIssue.mutate({ labels: pendingSuggestion.labels });
+                          setIgnoredSuggestionFields((current) => ({ ...current, labels: true }));
+                        }}
+                      >
+                        Apply
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setIgnoredSuggestionFields((current) => ({ ...current, labels: true }))}>
+                        Ignore
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {editing ? <p className="text-xs text-muted-foreground">Tip: press Ctrl/Cmd+S to save quickly.</p> : null}
           </CardContent>
         </Card>

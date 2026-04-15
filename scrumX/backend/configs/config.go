@@ -12,6 +12,9 @@ type Config struct {
 	DatabaseURL          string
 	JWTSecret            string
 	JWTRefreshSecret     string
+	AIProvider           string
+	AIAPIKey             string
+	AITimeout            time.Duration
 	MetricsToken         string
 	KafkaEnabled         bool
 	KafkaBrokers         string
@@ -38,6 +41,9 @@ func Load() Config {
 		DatabaseURL:          getEnv("DATABASE_URL", "postgres://postgres:postgres@postgres:5432/scrumx?sslmode=disable"),
 		JWTSecret:            getEnv("JWT_SECRET", "change-me-access"),
 		JWTRefreshSecret:     getEnv("JWT_REFRESH_SECRET", "change-me-refresh"),
+		AIProvider:           getEnv("AI_PROVIDER", "openai"),
+		AIAPIKey:             getEnv("AI_API_KEY", ""),
+		AITimeout:            time.Duration(getEnvInt("AI_TIMEOUT_SECONDS", 3)) * time.Second,
 		MetricsToken:         getEnv("METRICS_TOKEN", ""),
 		KafkaEnabled:         getEnvBool("KAFKA_ENABLED", false),
 		KafkaBrokers:         getEnv("KAFKA_BROKERS", "kafka:9092"),

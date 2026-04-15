@@ -4,6 +4,8 @@ export const qk = {
   issue: (id: string) => ['issue', id] as const,
   comments: (id: string) => ['issue-comments', id] as const,
   activities: (id: string) => ['issue-activities', id] as const,
+  issueSummary: (id: string) => ['issue-summary', id] as const,
+  issueSuggestion: (id: string) => ['issue-suggestion', id] as const,
   board: (id: string) => ['board', id] as const,
   workflowTransitions: (projectId: string) => ['workflow-transitions', projectId] as const,
   automationRules: ['automation-rules'] as const,

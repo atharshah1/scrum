@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/atharshah1/scrum/scrumX/backend/configs"
+	"github.com/atharshah1/scrum/scrumX/backend/internal/ai"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/apidocs"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/auth"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/authz"
@@ -75,6 +76,7 @@ func main() {
 	authzService := authz.NewService(database)
 	issueRepo := issues.NewRepository(database)
 	issueService := issues.NewService(issueRepo, bus, authzService, sharedCache)
+	aiService := ai.NewService(ai.NewLLMClient(cfg.AIProvider, cfg.AIAPIKey), sharedCache, cfg.AITimeout)
 
 	webhookDispatcher := webhooks.NewDispatcher(log, bus, cfg.WebhookTimeout, database)
 	automationStore := automation.NewStore(database)
@@ -148,6 +150,7 @@ func main() {
 	secure.Use(middleware.AuditMiddleware(database))
 
 	issues.NewHandler(issueService, sharedCache).RegisterRoutes(secure)
+	ai.NewHandler(aiService, issueService).RegisterRoutes(secure)
 	organizations.NewHandler().RegisterRoutes(secure)
 	users.NewHandler(database, authzService).RegisterRoutes(secure)
 	projects.NewHandler().RegisterRoutes(secure)
