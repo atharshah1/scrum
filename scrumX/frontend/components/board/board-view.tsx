@@ -72,11 +72,15 @@ export function BoardView({ boardId, board, transitions }: { boardId: string; bo
       }
       return { previous };
     },
-    onError: (_error, _variables, context) => {
+    onError: (error, _variables, context) => {
       if (context?.previous) {
         queryClient.setQueryData(qk.board(boardId), context.previous);
       }
-      toast({ title: 'Move failed', description: 'Issue transition was rejected and has been reverted.', variant: 'error' });
+      toast({
+        title: 'Move failed',
+        description: error instanceof Error ? error.message : 'Issue transition was rejected and has been reverted.',
+        variant: 'error'
+      });
     },
     onSuccess: (_data, vars) => {
       queryClient.setQueryData<Issue | undefined>(qk.issue(vars.issueId), (current) =>
@@ -187,11 +191,15 @@ function IssueCard({ boardId, issue, transitions }: { boardId: string; issue: Is
       }
       return { previousBoard };
     },
-    onError: (_error, _variables, context) => {
+    onError: (error, _variables, context) => {
       if (context?.previousBoard) {
         queryClient.setQueryData(qk.board(boardId), context.previousBoard);
       }
-      toast({ title: 'Quick action failed', description: 'Reverted latest quick change.', variant: 'error' });
+      toast({
+        title: 'Quick action failed',
+        description: error instanceof Error ? error.message : 'Reverted latest quick change.',
+        variant: 'error'
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: qk.board(boardId), exact: true });

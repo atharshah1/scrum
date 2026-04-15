@@ -187,9 +187,13 @@ function IssueRow({ issue, active, filterKey }: { issue: Issue; active: boolean;
       }
       return { previous };
     },
-    onError: (_error, _vars, context) => {
+    onError: (error, _vars, context) => {
       if (context?.previous) queryClient.setQueryData(qk.issues(filterKey), context.previous);
-      toast({ title: 'Quick action failed', description: 'Unable to apply quick issue update.', variant: 'error' });
+      toast({
+        title: 'Quick action failed',
+        description: error instanceof Error ? error.message : 'Unable to apply quick issue update.',
+        variant: 'error'
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: qk.issues(filterKey), exact: true });

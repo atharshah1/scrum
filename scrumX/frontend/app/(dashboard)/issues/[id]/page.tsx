@@ -77,11 +77,15 @@ export default function IssueDetailPage() {
       }
       return { previousIssue };
     },
-    onError: (_error, _vars, context) => {
+    onError: (error, _vars, context) => {
       if (context?.previousIssue) {
         queryClient.setQueryData(qk.issue(issueId), context.previousIssue);
       }
-      toast({ title: 'Update failed', description: 'Changes were reverted.', variant: 'error' });
+      toast({
+        title: 'Update failed',
+        description: error instanceof Error ? error.message : 'Changes were reverted.',
+        variant: 'error'
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: qk.issue(issueId), exact: true });
@@ -117,11 +121,15 @@ export default function IssueDetailPage() {
         };
       });
     },
-    onError: (_error, _variables, context) => {
+    onError: (error, _variables, context) => {
       if (context?.previousIssue) {
         queryClient.setQueryData(qk.issue(issueId), context.previousIssue);
       }
-      toast({ title: 'Transition failed', description: 'Issue transition was reverted.', variant: 'error' });
+      toast({
+        title: 'Transition failed',
+        description: error instanceof Error ? error.message : 'Issue transition was reverted.',
+        variant: 'error'
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: qk.issue(issueId), exact: true });

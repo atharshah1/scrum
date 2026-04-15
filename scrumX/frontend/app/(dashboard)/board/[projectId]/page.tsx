@@ -89,7 +89,7 @@ export default function BoardPage() {
       {(stuckQuery.data?.length ?? 0) > 0 ? (
         <Card>
           <CardContent className="flex items-center justify-between gap-3 p-3 text-sm">
-            <span>⚠ {stuckQuery.data?.length} stuck task(s) older than 2 days.</span>
+            <span>⚠ {stuckQuery.data?.length} stuck tasks older than 2 days.</span>
             <Button size="sm" variant="outline" onClick={() => setShowOnlyStuck((value) => !value)}>
               {showOnlyStuck ? 'Show all' : 'Filter stuck'}
             </Button>
