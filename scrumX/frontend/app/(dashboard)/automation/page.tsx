@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { AutomationBuilder } from '@/components/automation/automation-builder';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { apiRequest } from '@/lib/api';
 import { qk } from '@/lib/query-keys';
 import type { AutomationRule } from '@/types';
@@ -20,10 +21,17 @@ export default function AutomationPage() {
       <Card>
         <CardHeader><CardTitle>Saved rules</CardTitle></CardHeader>
         <CardContent className="space-y-2">
-          {(rulesQuery.data ?? []).map((rule) => (
-            <div key={rule.id ?? rule.name} className="rounded-md border p-2 text-sm">{rule.name} • {rule.trigger}</div>
-          ))}
-          {!rulesQuery.data?.length && <p className="text-sm text-muted-foreground">No automation rules yet.</p>}
+          {rulesQuery.isPending ? (
+            <>
+              <Skeleton className="h-10" />
+              <Skeleton className="h-10" />
+            </>
+          ) : (
+            (rulesQuery.data ?? []).map((rule) => (
+              <div key={rule.id ?? rule.name} className="rounded-md border p-2 text-sm">{rule.name} • {rule.trigger}</div>
+            ))
+          )}
+          {!rulesQuery.isPending && !rulesQuery.data?.length ? <p className="text-sm text-muted-foreground">No automation rules yet.</p> : null}
         </CardContent>
       </Card>
     </div>

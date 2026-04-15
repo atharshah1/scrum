@@ -86,6 +86,27 @@ export type AutomationRule = {
   enabled?: boolean;
 };
 
+export type WorkflowTransition = {
+  id: string;
+  from_status: string;
+  to_status: string;
+  conditions: Record<string, unknown>;
+  validators: Record<string, unknown>;
+  post_functions: Record<string, unknown>;
+};
+
+export type Notification = {
+  id: string;
+  org_id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  message: string;
+  entity_id?: string;
+  is_read: boolean;
+  created_at: string;
+};
+
 export type ScrumEvent = {
   id: string;
   org_id: string;

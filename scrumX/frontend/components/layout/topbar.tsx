@@ -6,6 +6,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { logout } from '@/lib/auth';
+import { NotificationsPanel } from '@/components/layout/notifications-panel';
 
 export function Topbar() {
   const user = useAuthStore((s) => s.user);
@@ -22,6 +23,7 @@ export function Topbar() {
         <Input className="border-0 p-0 shadow-none focus-visible:ring-0" readOnly value="Search or jump... (Ctrl+K)" />
       </button>
       <div className="flex items-center gap-2 text-sm">
+        <NotificationsPanel />
         <span className="text-muted-foreground">{user?.email ?? 'Guest'}</span>
         <Button variant="outline" size="sm" onClick={logout}>Sign out</Button>
       </div>

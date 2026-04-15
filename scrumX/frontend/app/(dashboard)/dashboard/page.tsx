@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { apiRequest } from '@/lib/api';
 import { qk } from '@/lib/query-keys';
 import type { Issue } from '@/types';
@@ -21,20 +22,39 @@ export default function DashboardPage() {
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Dashboard</h1>
       <div className="grid gap-4 md:grid-cols-4">
-        <Summary title="Total issues" value={issues.length} />
-        <Summary title="Active" value={active} />
-        <Summary title="Done" value={done} />
-        <Summary title="Assigned to me" value={issues.filter((i) => !!i.assignee_id).length} />
+        {issuesQuery.isPending ? (
+          <>
+            <Skeleton className="h-24" />
+            <Skeleton className="h-24" />
+            <Skeleton className="h-24" />
+            <Skeleton className="h-24" />
+          </>
+        ) : (
+          <>
+            <Summary title="Total issues" value={issues.length} />
+            <Summary title="Active" value={active} />
+            <Summary title="Done" value={done} />
+            <Summary title="Assigned to me" value={issues.filter((i) => !!i.assignee_id).length} />
+          </>
+        )}
       </div>
       <Card>
         <CardHeader><CardTitle>Activity feed</CardTitle></CardHeader>
         <CardContent className="space-y-2 text-sm">
-          {issues.slice(0, 8).map((issue) => (
-            <Link key={issue.id} className="block rounded-md border p-2 hover:bg-accent" href={`/issues/${issue.id}`}>
-              {issue.title}
-            </Link>
-          ))}
-          {!issues.length && <p className="text-muted-foreground">No activity yet.</p>}
+          {issuesQuery.isPending ? (
+            <>
+              <Skeleton className="h-10" />
+              <Skeleton className="h-10" />
+              <Skeleton className="h-10" />
+            </>
+          ) : (
+            issues.slice(0, 8).map((issue) => (
+              <Link key={issue.id} className="block rounded-md border p-2 hover:bg-accent" href={`/issues/${issue.id}`}>
+                {issue.title}
+              </Link>
+            ))
+          )}
+          {!issuesQuery.isPending && !issues.length ? <p className="text-muted-foreground">No activity yet.</p> : null}
         </CardContent>
       </Card>
     </div>

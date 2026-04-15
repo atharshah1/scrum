@@ -5,7 +5,9 @@ export const qk = {
   comments: (id: string) => ['issue-comments', id] as const,
   activities: (id: string) => ['issue-activities', id] as const,
   board: (id: string) => ['board', id] as const,
+  workflowTransitions: (projectId: string) => ['workflow-transitions', projectId] as const,
   automationRules: ['automation-rules'] as const,
   releases: ['releases'] as const,
-  incidents: ['incidents'] as const
+  incidents: ['incidents'] as const,
+  notifications: (scope = 'all') => ['notifications', scope] as const
 };
