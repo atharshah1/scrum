@@ -12,6 +12,9 @@ import { formatAssignee } from '@/lib/format';
 import { qk } from '@/lib/query-keys';
 import type { Board, Issue, WorkflowTransition } from '@/types';
 
+// Render in 80-item chunks to keep large columns responsive without full virtualization yet.
+const ISSUE_BATCH_SIZE = 80;
+
 function canTransition(status: string, nextStatus: string, transitions: WorkflowTransition[]) {
   return transitions.some((transition) => transition.from_status === status && transition.to_status === nextStatus);
 }
@@ -117,8 +120,6 @@ export function BoardView({ boardId, board, transitions }: { boardId: string; bo
 function BoardColumnCard({ column, transitions }: { column: Board['columns'][number]; transitions: WorkflowTransition[] }) {
   const targetStatus = column.statuses[0] ?? column.name.toLowerCase();
   const { setNodeRef, isOver } = useDroppable({ id: targetStatus });
-  // Render in 80-item chunks to keep large columns responsive without full virtualization yet.
-  const ISSUE_BATCH_SIZE = 80;
   const [visibleCount, setVisibleCount] = useState(ISSUE_BATCH_SIZE);
   const visibleIssues = column.issues.slice(0, visibleCount);
   const hasMore = column.issues.length > visibleCount;

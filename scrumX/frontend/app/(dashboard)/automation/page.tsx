@@ -21,6 +21,9 @@ export default function AutomationPage() {
     queryKey: qk.automationRules,
     queryFn: () => apiRequest<AutomationRule[]>('/automation/rules')
   });
+  const emptyStateAction = canEdit
+    ? <Button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Create first rule</Button>
+    : <Link className="text-sm underline" href="/settings">Request admin access</Link>;
 
   return (
     <div className="space-y-4">
@@ -50,7 +53,7 @@ export default function AutomationPage() {
             <EmptyState
               title="No automation rules yet"
               description="Start from a template and automate repetitive workflow updates."
-              action={canEdit ? <Button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>Create first rule</Button> : <Link className="text-sm underline" href="/settings">Request admin access</Link>}
+              action={emptyStateAction}
               hint="Good first rule: auto-assign QA when status changes to done."
             />
           ) : null}
