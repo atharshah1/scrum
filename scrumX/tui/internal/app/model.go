@@ -13,9 +13,10 @@ import (
 )
 
 type dataLoadedMsg struct {
-	board  *api.Board
-	issues []api.Issue
-	err    error
+	board        *api.Board
+	issues       []api.Issue
+	searchIssues []api.Issue
+	err          error
 }
 
 type notificationsLoadedMsg struct {
@@ -60,6 +61,9 @@ type Model struct {
 	inputLabel        string
 	inputValue        string
 	inputAction       string
+	inCommandMode     bool
+	commandInput      string
+	searchQuery       string
 }
 
 func NewModel() Model {
@@ -73,6 +77,46 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.inCommandMode {
+			switch msg.String() {
+			case "esc":
+				m.inCommandMode = false
+				m.commandInput = ""
+				return m, nil
+			case "enter":
+				command := strings.TrimSpace(m.commandInput)
+				m.inCommandMode = false
+				m.commandInput = ""
+				switch {
+				case strings.HasPrefix(command, "/search"):
+					m.searchQuery = strings.TrimSpace(strings.TrimPrefix(command, "/search"))
+					m.loading = true
+					return m, m.fetchDataCmd()
+				case strings.HasPrefix(command, ":filter"):
+					m.searchQuery = strings.TrimSpace(strings.TrimPrefix(command, ":filter"))
+					m.loading = true
+					return m, m.fetchDataCmd()
+				default:
+					m.err = fmt.Errorf("unknown command: %s", command)
+					return m, nil
+				}
+			case "backspace":
+				if len(m.commandInput) > 0 {
+					m.commandInput = m.commandInput[:len(m.commandInput)-1]
+				}
+				return m, nil
+			default:
+				if msg.String() == "space" || msg.String() == " " {
+					m.commandInput += " "
+					return m, nil
+				}
+				if len(msg.String()) == 1 {
+					m.commandInput += msg.String()
+				}
+				return m, nil
+			}
+		}
+
 		if m.inInputMode {
 			switch msg.String() {
 			case "esc":
@@ -224,6 +268,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "/", ":":
+			m.inCommandMode = true
+			m.commandInput = msg.String()
+			return m, nil
 		case "r":
 			m.loading = true
 			m.err = nil
@@ -271,7 +319,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dataLoadedMsg:
 		m.loading = false
 		m.err = msg.err
-		m.board = msg.board
+		if msg.board != nil {
+			if strings.TrimSpace(m.searchQuery) != "" {
+				m.board = filterBoardByIssues(msg.board, msg.searchIssues)
+			} else {
+				m.board = msg.board
+			}
+		} else {
+			m.board = nil
+		}
 		m.issues = msg.issues
 		if m.selectedCol >= len(m.boardColumns()) {
 			m.selectedCol = 0
@@ -367,6 +423,15 @@ func (m Model) View() string {
 	var b strings.Builder
 	b.WriteString(title)
 	b.WriteString(fmt.Sprintf("\nUnread notifications: %d\n", m.unreadCount))
+	if strings.TrimSpace(m.searchQuery) != "" {
+		b.WriteString(fmt.Sprintf("Active filter: %s\n", m.searchQuery))
+	}
+
+	if m.inCommandMode {
+		b.WriteString(fmt.Sprintf("\nCommand: %s\n", m.commandInput))
+		b.WriteString("Use /search <query> or :filter <query> • Enter apply • Esc cancel\n")
+		return b.String()
+	}
 
 	if m.inInputMode {
 		b.WriteString(fmt.Sprintf("\n%s: %s\n", m.inputLabel, m.inputValue))
@@ -465,7 +530,7 @@ func (m Model) View() string {
 		b.WriteString("Keys: t title • e description • a assignee • l add label • p cycle priority • Esc close\n")
 		return b.String()
 	}
-	b.WriteString("\nKeys: ←/→ switch columns • ↑/↓ move • m move issue • d details/edit • n notifications • r refresh • q quit\n")
+	b.WriteString("\nKeys: ←/→ switch columns • ↑/↓ move • m move issue • d details/edit • /search or :filter • n notifications • r refresh • q quit\n")
 	return b.String()
 }
 
@@ -480,7 +545,15 @@ func (m Model) fetchDataCmd() tea.Cmd {
 			if err != nil {
 				return dataLoadedMsg{err: err}
 			}
-			return dataLoadedMsg{board: &board}
+			if strings.TrimSpace(m.searchQuery) == "" {
+				return dataLoadedMsg{board: &board}
+			}
+			items, err := m.client.SearchIssues(m.searchQuery)
+			return dataLoadedMsg{board: &board, searchIssues: items, err: err}
+		}
+		if strings.TrimSpace(m.searchQuery) != "" {
+			issues, err := m.client.SearchIssues(m.searchQuery)
+			return dataLoadedMsg{issues: issues, err: err}
 		}
 		issues, err := m.client.ListIssues()
 		return dataLoadedMsg{issues: issues, err: err}
@@ -619,6 +692,43 @@ func (m Model) currentSelectedProjectAndStatus() (string, string) {
 		return it.ProjectID, it.Status
 	}
 	return "", ""
+}
+
+func filterBoardByIssues(board *api.Board, matches []api.Issue) *api.Board {
+	if board == nil {
+		return nil
+	}
+	if len(matches) == 0 {
+		if len(board.Columns) == 0 {
+			return board
+		}
+		cloned := *board
+		cloned.Columns = make([]api.BoardColumn, 0, len(board.Columns))
+		for _, column := range board.Columns {
+			next := column
+			next.Issues = []api.BoardIssue{}
+			cloned.Columns = append(cloned.Columns, next)
+		}
+		return &cloned
+	}
+	allowed := make(map[string]struct{}, len(matches))
+	for _, item := range matches {
+		allowed[item.ID] = struct{}{}
+	}
+	cloned := *board
+	cloned.Columns = make([]api.BoardColumn, 0, len(board.Columns))
+	for _, column := range board.Columns {
+		next := column
+		filtered := make([]api.BoardIssue, 0, len(column.Issues))
+		for _, issue := range column.Issues {
+			if _, ok := allowed[issue.ID]; ok {
+				filtered = append(filtered, issue)
+			}
+		}
+		next.Issues = filtered
+		cloned.Columns = append(cloned.Columns, next)
+	}
+	return &cloned
 }
 
 func nextPriority(current string) string {

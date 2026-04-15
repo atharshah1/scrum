@@ -77,6 +77,10 @@ func (s *Service) List(ctx context.Context, orgID uuid.UUID, filter ListIssuesFi
 	return s.repo.List(ctx, orgID, filter)
 }
 
+func (s *Service) Search(ctx context.Context, orgID, actorID uuid.UUID, query string, page, limit int) ([]Issue, int, IssueSearchAST, error) {
+	return s.repo.Search(ctx, orgID, actorID, query, page, limit)
+}
+
 func (s *Service) Get(ctx context.Context, orgID, issueID uuid.UUID) (Issue, error) {
 	return s.repo.GetByID(ctx, orgID, issueID)
 }

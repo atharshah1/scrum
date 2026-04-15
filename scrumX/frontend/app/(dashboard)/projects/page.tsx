@@ -25,6 +25,7 @@ export default function ProjectsPage() {
   const setSelectedProject = useAppStore((s) => s.setSelectedProject);
   const filters = useAppStore((s) => s.issueFilters);
   const setIssueFilter = useAppStore((s) => s.setIssueFilter);
+  const jqlSearch = useAppStore((s) => s.jqlSearch);
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const isAdmin = isAdminRole(user?.role);
@@ -36,10 +37,15 @@ export default function ProjectsPage() {
     }
   );
 
-  const filterKey = JSON.stringify({ selectedProjectId, filters });
+  const filterKey = JSON.stringify({ selectedProjectId, filters, jqlSearch });
   const issuesQuery = useQuery({
     queryKey: qk.issues(filterKey),
     queryFn: () => {
+      if (jqlSearch.trim()) {
+        const search = new URLSearchParams();
+        search.set('q', jqlSearch);
+        return apiRequest<Issue[]>(`/issues/search?${search.toString()}`);
+      }
       const search = new URLSearchParams();
       if (selectedProjectId) search.set('project_id', selectedProjectId);
       if (filters.status) search.set('status', filters.status);
@@ -112,6 +118,11 @@ export default function ProjectsPage() {
           <Input placeholder="Label" value={filters.label ?? ''} onChange={(e) => setIssueFilter('label', e.target.value)} />
           <Input placeholder="Assignee ID" value={filters.assignee_id ?? ''} onChange={(e) => setIssueFilter('assignee_id', e.target.value)} />
         </CardContent>
+        {jqlSearch.trim() ? (
+          <p className="px-6 pb-4 text-xs text-muted-foreground">
+            JQL search is active from the top bar: <span className="font-medium">{jqlSearch}</span>
+          </p>
+        ) : null}
       </Card>
 
       <Card>

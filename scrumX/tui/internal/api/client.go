@@ -17,16 +17,16 @@ import (
 type Client struct{}
 
 type Issue struct {
-	ID         string   `json:"id"`
-	ProjectID  string   `json:"project_id"`
-	Title      string   `json:"title"`
-	Description string  `json:"description"`
-	Status     string   `json:"status"`
-	Priority   string   `json:"priority"`
-	IssueType  string   `json:"issue_type"`
-	Labels     []string `json:"labels"`
-	AssigneeID *string  `json:"assignee_id,omitempty"`
-	SprintID   *string  `json:"sprint_id,omitempty"`
+	ID          string   `json:"id"`
+	ProjectID   string   `json:"project_id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Status      string   `json:"status"`
+	Priority    string   `json:"priority"`
+	IssueType   string   `json:"issue_type"`
+	Labels      []string `json:"labels"`
+	AssigneeID  *string  `json:"assignee_id,omitempty"`
+	SprintID    *string  `json:"sprint_id,omitempty"`
 }
 
 type BoardIssue struct {
@@ -102,6 +102,26 @@ func (c *Client) ListIssues() ([]Issue, error) {
 	}
 	var out envelope[[]Issue]
 	resp, err := c.request(cfg, http.MethodGet, "/issues", nil, &out)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		return nil, fmt.Errorf("request failed (%d): %s", resp.StatusCode(), parseError(out.Error.Message, resp.StatusCode()))
+	}
+	return out.Data, nil
+}
+
+func (c *Client) SearchIssues(queryText string) ([]Issue, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	if cfg.AccessToken == "" {
+		return nil, fmt.Errorf("not logged in: run scrumx auth login first")
+	}
+	path := "/issues/search?q=" + url.QueryEscape(strings.TrimSpace(queryText))
+	var out envelope[[]Issue]
+	resp, err := c.request(cfg, http.MethodGet, path, nil, &out)
 	if err != nil {
 		return nil, err
 	}

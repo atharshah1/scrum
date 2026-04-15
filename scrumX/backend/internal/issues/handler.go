@@ -42,6 +42,7 @@ func (h *Handler) RegisterRoutes(api fiber.Router) {
 	issues := api.Group("/issues")
 	issues.Post("/", h.create)
 	issues.Get("/", h.list)
+	issues.Get("/search", h.search)
 	issues.Get("/:id", h.get)
 	issues.Patch("/:id", h.update)
 	issues.Delete("/:id", h.delete)
@@ -189,6 +190,42 @@ func (h *Handler) list(c *fiber.Ctx) error {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return c.Status(fiber.StatusOK).JSON(payload)
+}
+
+func (h *Handler) search(c *fiber.Ctx) error {
+	orgID, ok := middleware.MustOrgID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
+	}
+	actorID, ok := middleware.MustUserID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusUnauthorized, "missing user context")
+	}
+	page, limit, err := validation.NormalizePagination(c.QueryInt("page", 1), c.QueryInt("limit", 20), 20, 100)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	query, err := validation.NormalizeOptionalString("q", c.Query("q"), 500)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	if strings.TrimSpace(query) == "" {
+		return utils.JSONError(c, fiber.StatusBadRequest, "q is required")
+	}
+	items, total, ast, err := h.service.Search(c.Context(), orgID, actorID, query, page, limit)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data":    items,
+		"meta": fiber.Map{
+			"page":  page,
+			"limit": limit,
+			"total": total,
+			"ast":   ast,
+		},
+	})
 }
 
 func (h *Handler) get(c *fiber.Ctx) error {

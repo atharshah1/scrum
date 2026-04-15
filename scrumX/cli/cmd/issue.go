@@ -13,7 +13,7 @@ import (
 var issueCmd = &cobra.Command{
 	Use:     "issue",
 	Aliases: []string{"issues", "is"},
-	Short: "Issue management commands",
+	Short:   "Issue management commands",
 }
 
 var issueCreateCmd = &cobra.Command{
@@ -150,6 +150,38 @@ var issueListCmd = &cobra.Command{
 	},
 }
 
+var issueSearchCmd = &cobra.Command{
+	Use:   "search <query>",
+	Short: "Search issues with query language (AND/OR, field=value)",
+	Args:  cobra.ExactArgs(1),
+	Example: strings.TrimSpace(`
+  scrumx issue search "status=done AND assignee=me AND priority=high"
+  scrumx issue search "status=in_progress AND label=payments"
+`),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newClient()
+		if err != nil {
+			return err
+		}
+		page, _ := cmd.Flags().GetInt("page")
+		limit, _ := cmd.Flags().GetInt("limit")
+		issues, err := client.SearchIssues(args[0], page, limit)
+		if err != nil {
+			return err
+		}
+		if len(issues) == 0 {
+			fmt.Println("No issues found")
+			return nil
+		}
+		rows := make([][]string, 0, len(issues))
+		for _, it := range issues {
+			rows = append(rows, []string{it.ID, utils.StatusColor(it.Status), it.Priority, it.IssueType, it.Title})
+		}
+		utils.PrintTable([]string{"ID", "STATUS", "PRIORITY", "TYPE", "TITLE"}, rows)
+		return nil
+	},
+}
+
 var issueViewCmd = &cobra.Command{
 	Use:   "view <issue-id>",
 	Short: "View an issue",
@@ -257,9 +289,9 @@ var issueUpdateCmd = &cobra.Command{
 }
 
 var issueAssignCmd = &cobra.Command{
-	Use:   "assign <issue-id> <user-id>",
-	Short: "Assign an issue",
-	Args:  cobra.ExactArgs(2),
+	Use:     "assign <issue-id> <user-id>",
+	Short:   "Assign an issue",
+	Args:    cobra.ExactArgs(2),
 	Example: "  scrumx issue assign <issue-id> <user-id>",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
@@ -548,7 +580,7 @@ var issueCommentListCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(issueCmd)
-	issueCmd.AddCommand(issueCreateCmd, issueListCmd, issueViewCmd, issueUpdateCmd, issueAssignCmd, issueMoveCmd, issueLabelCmd, issueBulkCmd, issueCommentCmd)
+	issueCmd.AddCommand(issueCreateCmd, issueListCmd, issueSearchCmd, issueViewCmd, issueUpdateCmd, issueAssignCmd, issueMoveCmd, issueLabelCmd, issueBulkCmd, issueCommentCmd)
 	issueLabelCmd.AddCommand(issueLabelAddCmd, issueLabelRemoveCmd)
 	issueBulkCmd.AddCommand(issueBulkAssignCmd, issueBulkMoveCmd, issueBulkUpdateCmd)
 	issueCommentCmd.AddCommand(issueCommentAddCmd, issueCommentListCmd)
@@ -584,6 +616,8 @@ func init() {
 	issueListCmd.Flags().String("order", "", "Sort order (asc|desc)")
 	issueListCmd.Flags().Int("page", 1, "Page number")
 	issueListCmd.Flags().Int("limit", 50, "Page size")
+	issueSearchCmd.Flags().Int("page", 1, "Page number")
+	issueSearchCmd.Flags().Int("limit", 50, "Page size")
 
 	issueBulkAssignCmd.Flags().String("issues", "", "Comma-separated issue IDs")
 	_ = issueBulkAssignCmd.MarkFlagRequired("issues")

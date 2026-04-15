@@ -304,6 +304,24 @@ func (c *Client) ListIssues(filter IssueListFilter) ([]Issue, error) {
 	return out.Data, err
 }
 
+func (c *Client) SearchIssues(queryText string, page, limit int) ([]Issue, error) {
+	query := url.Values{}
+	query.Set("q", strings.TrimSpace(queryText))
+	if page > 0 {
+		query.Set("page", fmt.Sprintf("%d", page))
+	}
+	if limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	path := "/issues/search?" + query.Encode()
+	var out envelope[[]Issue]
+	_, err := c.authedRequest(http.MethodGet, path, nil, &out)
+	if err == nil {
+		c.cacheWrite("issues", c.cacheScope()+"|"+path, out.Data)
+	}
+	return out.Data, err
+}
+
 func (c *Client) GetIssue(id string) (Issue, error) {
 	cacheKey := c.cacheScope() + "|" + strings.TrimSpace(id)
 	if cacheKey != "|" {

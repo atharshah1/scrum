@@ -186,6 +186,63 @@ FROM issues i WHERE ` + whereClause + ` ORDER BY ` + orderByClause + ` LIMIT $` 
 	return issues, total, rows.Err()
 }
 
+func (r *Repository) Search(ctx context.Context, orgID, actorID uuid.UUID, rawQuery string, page, limit int) ([]Issue, int, IssueSearchAST, error) {
+	expr, ast, err := parseIssueSearchQuery(rawQuery)
+	if err != nil {
+		return nil, 0, IssueSearchAST{}, err
+	}
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	args := []any{orgID}
+	argN := 2
+	clause, err := buildIssueSearchSQL(expr, actorID, &args, &argN)
+	if err != nil {
+		return nil, 0, IssueSearchAST{}, err
+	}
+	whereClause := "i.org_id = $1 AND i.deleted_at IS NULL AND (" + clause + ")"
+
+	var total int
+	countQ := `SELECT COUNT(*) FROM issues i WHERE ` + whereClause
+	if err := r.db.QueryRowContext(ctx, countQ, args...).Scan(&total); err != nil {
+		return nil, 0, IssueSearchAST{}, err
+	}
+
+	offset := (page - 1) * limit
+	query := `SELECT i.id, i.org_id, i.project_id, i.parent_id, i.sprint_id, i.reporter_id, i.assignee_id, i.issue_type, i.title, i.description, i.status, i.priority, i.created_at, i.updated_at
+FROM issues i WHERE ` + whereClause + ` ORDER BY i.updated_at DESC LIMIT $` + itoa(argN) + ` OFFSET $` + itoa(argN+1)
+	args = append(args, limit, offset)
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, IssueSearchAST{}, err
+	}
+	defer rows.Close()
+
+	issues := make([]Issue, 0, limit)
+	issueIDs := make([]uuid.UUID, 0, limit)
+	for rows.Next() {
+		var issue Issue
+		if err := rows.Scan(&issue.ID, &issue.OrgID, &issue.ProjectID, &issue.ParentID, &issue.SprintID, &issue.ReporterID, &issue.AssigneeID, &issue.IssueType,
+			&issue.Title, &issue.Description, &issue.Status, &issue.Priority, &issue.CreatedAt, &issue.UpdatedAt); err != nil {
+			return nil, 0, IssueSearchAST{}, err
+		}
+		issues = append(issues, issue)
+		issueIDs = append(issueIDs, issue.ID)
+	}
+	labelsByIssue, err := r.ListLabelsByIssueIDs(ctx, orgID, issueIDs)
+	if err != nil {
+		return nil, 0, IssueSearchAST{}, err
+	}
+	for i := range issues {
+		issues[i].Labels = labelsByIssue[issues[i].ID]
+	}
+	return issues, total, ast, rows.Err()
+}
+
 func (r *Repository) Update(ctx context.Context, orgID, issueID uuid.UUID, input UpdateIssueInput) (Issue, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
