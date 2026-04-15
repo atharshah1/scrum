@@ -109,9 +109,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
         }
       });
 
+      // Issue lists/boards change frequently while users triage work, so keep these fairly fresh.
       queryClient.setQueryDefaults(['issues'], { staleTime: 20_000, gcTime: 900_000 });
       queryClient.setQueryDefaults(['board'], { staleTime: 45_000, gcTime: 900_000 });
+      // Automation rules change less often and are typically admin-driven configuration.
       queryClient.setQueryDefaults(['automation-rules'], { staleTime: 120_000, gcTime: 1_200_000 });
+      // Notifications should refresh more aggressively to keep unread indicators responsive.
       queryClient.setQueryDefaults(['notifications'], { staleTime: 8_000, gcTime: 300_000 });
       return queryClient;
     }

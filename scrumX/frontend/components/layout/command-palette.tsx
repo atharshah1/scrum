@@ -61,7 +61,7 @@ export function CommandPalette() {
             }}
           >
             <span>{action.label}</span>
-            <span className="text-xs text-muted-foreground">{action.shortcut}</span>
+            <kbd className="rounded border bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">{action.shortcut}</kbd>
           </button>
         ))}
       </div>

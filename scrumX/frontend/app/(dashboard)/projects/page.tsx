@@ -72,6 +72,10 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTypingTarget =
+        target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
+      if (isTypingTarget || event.ctrlKey || event.metaKey || event.altKey) return;
       if (!issues.length) return;
       if (event.key.toLowerCase() === 'j') {
         event.preventDefault();

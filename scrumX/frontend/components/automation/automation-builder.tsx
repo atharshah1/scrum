@@ -49,6 +49,10 @@ const templates: RuleTemplate[] = [
   }
 ];
 
+function buildDsl(trigger: string, conditions: Condition[], actions: Action[]) {
+  return `IF ${trigger} ${conditions.map((condition) => `${condition.field} ${condition.op} ${condition.value}`).join(' AND ')} THEN ${actions.map((action) => `${action.type} ${action.value}`).join(', ')}`;
+}
+
 export function AutomationBuilder({ canEdit }: { canEdit: boolean }) {
   const [name, setName] = useState('');
   const [trigger, setTrigger] = useState(triggers[0]);
@@ -65,7 +69,7 @@ export function AutomationBuilder({ canEdit }: { canEdit: boolean }) {
       trigger,
       conditions: conditions.map((condition) => ({ field: condition.field, op: condition.op, value: condition.value })),
       actions: actions.map((action) => ({ type: action.type, value: action.value })),
-      dsl: `IF ${trigger} ${conditions.map((condition) => `${condition.field} ${condition.op} ${condition.value}`).join(' AND ')} THEN ${actions.map((action) => `${action.type} ${action.value}`).join(', ')}`,
+      dsl: buildDsl(trigger, conditions, actions),
       enabled: true
     }),
     [actions, conditions, name, trigger]
