@@ -65,7 +65,7 @@ func Load() Config {
 		RedisAddr:             getEnv("REDIS_ADDR", "redis:6379"),
 		RedisPassword:         getEnv("REDIS_PASSWORD", ""),
 		RedisDB:               getEnvInt("REDIS_DB", 0),
-		AIFromTextEnabled:     getEnvBool("AI_FROM_TEXT_ENABLED", true),
+		AIFromTextEnabled:     getEnvBool("AI_FROM_TEXT_ENABLED", false),
 		AIFromTextLimitPerMin: getEnvInt("AI_FROM_TEXT_LIMIT_PER_MIN", 10),
 		AIFromTextDailyQuota:  getEnvInt("AI_FROM_TEXT_DAILY_QUOTA", 200),
 		AIFromTextMaxChars:    getEnvInt("AI_FROM_TEXT_MAX_CHARS", 4000),
