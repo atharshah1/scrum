@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from '@/components/ui/toast';
 import { useFormFields, required } from '@/components/forms/use-form';
 import { apiRequest } from '@/lib/api';
 import { isAdminRole } from '@/lib/permissions';
@@ -144,14 +145,12 @@ export default function ProjectsPage() {
             </>
           ) : (
             issues.map((issue) => (
-              <Link
+              <IssueRow
                 key={issue.id}
-                href={`/issues/${issue.id}`}
-                className={`block rounded-md border p-3 hover:bg-accent ${issues[activeIndex]?.id === issue.id ? 'ring-2 ring-blue-200' : ''}`}
-              >
-                <div className="font-medium">{issue.title}</div>
-                <div className="text-xs text-muted-foreground">{issue.status}</div>
-              </Link>
+                issue={issue}
+                active={issues[activeIndex]?.id === issue.id}
+                filterKey={filterKey}
+              />
             ))
           )}
           {!issuesQuery.isPending && !issues.length ? (
@@ -164,6 +163,78 @@ export default function ProjectsPage() {
           ) : null}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function IssueRow({ issue, active, filterKey }: { issue: Issue; active: boolean; filterKey: string }) {
+  const queryClient = useQueryClient();
+  const [assignee, setAssignee] = useState('');
+  const [label, setLabel] = useState('');
+  const [status, setStatus] = useState(issue.status);
+
+  const quickUpdate = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) =>
+      apiRequest(`/issues/${issue.id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+    onMutate: async (payload) => {
+      await queryClient.cancelQueries({ queryKey: qk.issues(filterKey), exact: true });
+      const previous = queryClient.getQueryData<Issue[]>(qk.issues(filterKey));
+      if (previous) {
+        queryClient.setQueryData<Issue[]>(
+          qk.issues(filterKey),
+          previous.map((item) => (item.id === issue.id ? { ...item, ...payload } : item))
+        );
+      }
+      return { previous };
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(qk.issues(filterKey), context.previous);
+      toast({ title: 'Quick action failed', description: 'Unable to apply quick issue update.', variant: 'error' });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: qk.issues(filterKey), exact: true });
+      queryClient.invalidateQueries({ queryKey: qk.issue(issue.id), exact: true });
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'board' });
+    }
+  });
+
+  const addLabel = useMutation({
+    mutationFn: async (nextLabel: string) =>
+      apiRequest(`/issues/${issue.id}/labels`, { method: 'POST', body: JSON.stringify({ label: nextLabel }) }),
+    onSuccess: () => {
+      setLabel('');
+      queryClient.invalidateQueries({ queryKey: qk.issues(filterKey), exact: true });
+      queryClient.invalidateQueries({ queryKey: qk.issue(issue.id), exact: true });
+    }
+  });
+
+  return (
+    <div className={`group rounded-md border p-3 ${active ? 'ring-2 ring-blue-200' : ''}`}>
+      <Link href={`/issues/${issue.id}`} className="block hover:underline">
+        <div className="font-medium">{issue.title}</div>
+      </Link>
+      <div className="text-xs text-muted-foreground">{issue.status}</div>
+      <div className="mt-2 hidden grid-cols-1 gap-2 group-hover:grid md:grid-cols-3">
+        <Select
+          value={status}
+          onChange={(event) => {
+            setStatus(event.target.value);
+            quickUpdate.mutate({ status: event.target.value });
+          }}
+        >
+          <option value="todo">🔁 todo</option>
+          <option value="in_progress">🔁 in_progress</option>
+          <option value="done">🔁 done</option>
+        </Select>
+        <div className="flex gap-1">
+          <Input value={assignee} onChange={(event) => setAssignee(event.target.value)} placeholder="👤 assignee UUID" />
+          <Button size="sm" variant="outline" onClick={() => quickUpdate.mutate({ assignee_id: assignee || null })}>Save</Button>
+        </div>
+        <div className="flex gap-1">
+          <Input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="🏷 label" />
+          <Button size="sm" variant="outline" onClick={() => label && addLabel.mutate(label)}>Add</Button>
+        </div>
+      </div>
     </div>
   );
 }

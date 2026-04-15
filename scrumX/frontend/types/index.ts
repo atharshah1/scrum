@@ -70,6 +70,28 @@ export type AISummary = {
   summary: string;
 };
 
+export type StuckIssue = {
+  id: string;
+  title: string;
+  status: string;
+  updated_at: string;
+};
+
+export type BottleneckInsight = {
+  status: string;
+  avg_days: number;
+};
+
+export type VelocityInsight = {
+  current: number;
+  trend: number[];
+};
+
+export type CycleTimeInsight = {
+  avg_days: number;
+  issue_id?: string;
+};
+
 export type BoardColumn = {
   id?: string;
   name: string;

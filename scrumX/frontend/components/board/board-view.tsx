@@ -5,7 +5,10 @@ import { CSS } from '@dnd-kit/utilities';
 import { DndContext, DragEndEvent, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 import { apiRequest } from '@/lib/api';
 import { formatAssignee } from '@/lib/format';
@@ -110,14 +113,14 @@ export function BoardView({ boardId, board, transitions }: { boardId: string; bo
     <DndContext sensors={sensors} onDragEnd={onDragEnd}>
       <div className="grid gap-4 md:grid-cols-3">
         {board.columns.map((column) => (
-          <BoardColumnCard key={column.name} column={column} transitions={transitions} />
+          <BoardColumnCard key={column.name} boardId={boardId} column={column} transitions={transitions} />
         ))}
       </div>
     </DndContext>
   );
 }
 
-function BoardColumnCard({ column, transitions }: { column: Board['columns'][number]; transitions: WorkflowTransition[] }) {
+function BoardColumnCard({ boardId, column, transitions }: { boardId: string; column: Board['columns'][number]; transitions: WorkflowTransition[] }) {
   const targetStatus = column.statuses[0] ?? column.name.toLowerCase();
   const { setNodeRef, isOver } = useDroppable({ id: targetStatus });
   const [visibleCount, setVisibleCount] = useState(ISSUE_BATCH_SIZE);
@@ -135,7 +138,7 @@ function BoardColumnCard({ column, transitions }: { column: Board['columns'][num
         </CardHeader>
         <CardContent className="space-y-2">
           {visibleIssues.map((issue) => (
-            <IssueCard key={issue.id} issue={issue} transitions={transitions} />
+            <IssueCard key={issue.id} boardId={boardId} issue={issue} transitions={transitions} />
           ))}
           {hasMore ? (
             <button
@@ -152,8 +155,11 @@ function BoardColumnCard({ column, transitions }: { column: Board['columns'][num
   );
 }
 
-function IssueCard({ issue, transitions }: { issue: Issue; transitions: WorkflowTransition[] }) {
+function IssueCard({ boardId, issue, transitions }: { boardId: string; issue: Issue; transitions: WorkflowTransition[] }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: issue.id });
+  const queryClient = useQueryClient();
+  const [assignee, setAssignee] = useState('');
+  const [label, setLabel] = useState('');
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -164,11 +170,51 @@ function IssueCard({ issue, transitions }: { issue: Issue; transitions: Workflow
     .filter((transition) => transition.from_status === issue.status)
     .map((transition) => transition.to_status);
 
+  const quickUpdate = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) =>
+      apiRequest(`/issues/${issue.id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+    onMutate: async (payload) => {
+      await queryClient.cancelQueries({ queryKey: qk.board(boardId), exact: true });
+      const previousBoard = queryClient.getQueryData<Board>(qk.board(boardId));
+      if (previousBoard) {
+        queryClient.setQueryData<Board>(qk.board(boardId), {
+          ...previousBoard,
+          columns: previousBoard.columns.map((column) => ({
+            ...column,
+            issues: column.issues.map((item) => (item.id === issue.id ? { ...item, ...payload } : item))
+          }))
+        });
+      }
+      return { previousBoard };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousBoard) {
+        queryClient.setQueryData(qk.board(boardId), context.previousBoard);
+      }
+      toast({ title: 'Quick action failed', description: 'Reverted latest quick change.', variant: 'error' });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: qk.board(boardId), exact: true });
+      queryClient.invalidateQueries({ queryKey: qk.issue(issue.id), exact: true });
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'issues' });
+    }
+  });
+
+  const addLabel = useMutation({
+    mutationFn: async (nextLabel: string) =>
+      apiRequest(`/issues/${issue.id}/labels`, { method: 'POST', body: JSON.stringify({ label: nextLabel }) }),
+    onSuccess: () => {
+      setLabel('');
+      queryClient.invalidateQueries({ queryKey: qk.board(boardId), exact: true });
+      queryClient.invalidateQueries({ queryKey: qk.issue(issue.id), exact: true });
+    }
+  });
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="cursor-grab rounded-md border bg-white p-3 text-sm shadow-sm active:cursor-grabbing"
+      className="group cursor-grab rounded-md border bg-white p-3 text-sm shadow-sm active:cursor-grabbing"
       {...listeners}
       {...attributes}
     >
@@ -187,6 +233,24 @@ function IssueCard({ issue, transitions }: { issue: Issue; transitions: Workflow
             <span aria-hidden>→ {status}</span>
           </Badge>
         ))}
+      </div>
+      <div className="mt-3 hidden gap-2 border-t pt-2 group-hover:block" onPointerDown={(event) => event.stopPropagation()}>
+        <div className="grid gap-2">
+          <Select defaultValue="" onChange={(event) => quickUpdate.mutate({ status: event.target.value })}>
+            <option value="" disabled>🔁 Change status</option>
+            {allowedStatuses.map((status) => (
+              <option key={status} value={status}>{status}</option>
+            ))}
+          </Select>
+          <div className="flex gap-2">
+            <Input value={assignee} onChange={(event) => setAssignee(event.target.value)} placeholder="👤 assignee UUID" />
+            <Button size="sm" variant="outline" onClick={() => quickUpdate.mutate({ assignee_id: assignee || null })}>Save</Button>
+          </div>
+          <div className="flex gap-2">
+            <Input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="🏷 label" />
+            <Button size="sm" variant="outline" onClick={() => label && addLabel.mutate(label)}>Add</Button>
+          </div>
+        </div>
       </div>
     </div>
   );

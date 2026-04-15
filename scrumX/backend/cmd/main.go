@@ -16,6 +16,7 @@ import (
 	"github.com/atharshah1/scrum/scrumX/backend/internal/automation"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/boards"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/events"
+	"github.com/atharshah1/scrum/scrumX/backend/internal/insights"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/integrations"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/issues"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/itsm"
@@ -162,6 +163,7 @@ func main() {
 	automation.NewHandler(automationStore, automationEngine).RegisterRoutes(secure)
 	webhooks.NewHandler(webhookDispatcher, bus).RegisterRoutes(secure)
 	integrations.NewHandler().RegisterRoutes(secure)
+	insights.NewHandler(database).RegisterRoutes(secure)
 	workflows.NewHandler(database, authzService).RegisterRoutes(secure)
 	notifications.NewHandler(notifRepo).RegisterRoutes(secure)
 

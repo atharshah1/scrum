@@ -1,20 +1,20 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { InlineEdit } from '@/components/forms/inline-edit';
 import { IssueComments } from '@/components/issues/issue-comments';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import { toast } from '@/components/ui/toast';
 import { apiRequest } from '@/lib/api';
-import { formatAssignee } from '@/lib/format';
 import { qk } from '@/lib/query-keys';
-import type { AISuggestion, AISummary, Board, Issue, IssueComment, WorkflowTransition } from '@/types';
+import type { Board, CycleTimeInsight, Issue, IssueComment, WorkflowTransition } from '@/types';
 
 const defaultTransitions: WorkflowTransition[] = [
   { id: 'todo-in-progress', from_status: 'todo', to_status: 'in_progress', conditions: {}, validators: {}, post_functions: {} },
@@ -28,19 +28,7 @@ export default function IssueDetailPage() {
   const params = useParams<{ id: string }>();
   const issueId = params.id;
   const queryClient = useQueryClient();
-
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [titleTouched, setTitleTouched] = useState(false);
-  const [descriptionTouched, setDescriptionTouched] = useState(false);
   const [nextStatus, setNextStatus] = useState('');
-  const [editing, setEditing] = useState(false);
-  const [pendingSuggestion, setPendingSuggestion] = useState<AISuggestion | null>(null);
-  const [ignoredSuggestionFields, setIgnoredSuggestionFields] = useState<Record<'type' | 'priority' | 'labels', boolean>>({
-    type: false,
-    priority: false,
-    labels: false
-  });
 
   const issueQuery = useQuery({
     queryKey: qk.issue(issueId),
@@ -63,13 +51,17 @@ export default function IssueDetailPage() {
     queryFn: () => apiRequest<WorkflowTransition[]>(`/workflows/${issueQuery.data?.project_id}/transitions`)
   });
 
-  const transitions = transitionsQuery.data?.length ? transitionsQuery.data : defaultTransitions;
-
-  const issueSummaryQuery = useQuery({
-    queryKey: qk.issueSummary(issueId),
-    enabled: false,
-    queryFn: () => apiRequest<AISummary>(`/ai/issues/${issueId}/summarize`, { method: 'POST' })
+  const cycleTimeQuery = useQuery({
+    queryKey: qk.insightsCycleTime(issueId),
+    queryFn: () => apiRequest<CycleTimeInsight>(`/insights/cycle-time?issue_id=${issueId}`)
   });
+
+  const transitions = transitionsQuery.data?.length ? transitionsQuery.data : defaultTransitions;
+  const issue = issueQuery.data;
+  const allowedTransitions = useMemo(
+    () => transitions.filter((transition) => transition.from_status === issue?.status).map((transition) => transition.to_status),
+    [issue?.status, transitions]
+  );
 
   const updateIssue = useMutation({
     mutationFn: async (payload: Record<string, unknown>) =>
@@ -77,9 +69,24 @@ export default function IssueDetailPage() {
         method: 'PATCH',
         body: JSON.stringify(payload)
       }),
-    onSuccess: (updatedIssue) => {
-      queryClient.setQueryData(qk.issue(issueId), updatedIssue);
+    onMutate: async (payload) => {
+      await queryClient.cancelQueries({ queryKey: qk.issue(issueId), exact: true });
+      const previousIssue = queryClient.getQueryData<Issue>(qk.issue(issueId));
+      if (previousIssue) {
+        queryClient.setQueryData<Issue>(qk.issue(issueId), { ...previousIssue, ...payload });
+      }
+      return { previousIssue };
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previousIssue) {
+        queryClient.setQueryData(qk.issue(issueId), context.previousIssue);
+      }
+      toast({ title: 'Update failed', description: 'Changes were reverted.', variant: 'error' });
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: qk.issue(issueId), exact: true });
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'issues' });
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'board' });
     }
   });
 
@@ -89,71 +96,44 @@ export default function IssueDetailPage() {
         method: 'PATCH',
         body: JSON.stringify({ status })
       }),
-    onSuccess: (updatedIssue) => {
+    onMutate: async (status) => {
+      await queryClient.cancelQueries({ queryKey: qk.issue(issueId), exact: true });
+      const previousIssue = queryClient.getQueryData<Issue>(qk.issue(issueId));
+      if (previousIssue) {
+        queryClient.setQueryData<Issue>(qk.issue(issueId), { ...previousIssue, status });
+      }
+      return { previousIssue };
+    },
+    onSuccess: (_updatedIssue, status) => {
       setNextStatus('');
-      queryClient.setQueryData(qk.issue(issueId), updatedIssue);
-      queryClient.invalidateQueries({
-        predicate: (query) =>
-          query.queryKey[0] === 'issues' && String(query.queryKey[1] ?? '').includes(updatedIssue.project_id)
+      queryClient.setQueryData<Board | undefined>(qk.board(issue?.project_id ?? ''), (board) => {
+        if (!board) return board;
+        return {
+          ...board,
+          columns: board.columns.map((column) => ({
+            ...column,
+            issues: column.issues.map((item) => (item.id === issueId ? { ...item, status } : item))
+          }))
+        };
       });
-      queryClient.invalidateQueries({
-        predicate: (query) => {
-          if (query.queryKey[0] !== 'board') return false;
-          const board = query.state.data as Board | undefined;
-          return board?.project_id === updatedIssue.project_id;
-        }
-      });
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousIssue) {
+        queryClient.setQueryData(qk.issue(issueId), context.previousIssue);
+      }
+      toast({ title: 'Transition failed', description: 'Issue transition was reverted.', variant: 'error' });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: qk.issue(issueId), exact: true });
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'issues' });
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'board' });
     }
   });
 
   const timeMutation = useMutation({
-    mutationFn: async (mode: 'start' | 'stop') => apiRequest(`/time/${mode}`, { method: 'POST', body: JSON.stringify({ issue_id: issueId }) })
+    mutationFn: async (mode: 'start' | 'stop') =>
+      apiRequest(`/time/${mode}`, { method: 'POST', body: JSON.stringify({ issue_id: issueId }) })
   });
-
-  const suggestFieldsMutation = useMutation({
-    mutationFn: async (payload: { title: string; description: string }) =>
-      apiRequest<AISuggestion>('/ai/issues/suggest', { method: 'POST', body: JSON.stringify(payload) }),
-    onSuccess: (suggestion) => {
-      setPendingSuggestion(suggestion);
-      setIgnoredSuggestionFields({ type: false, priority: false, labels: false });
-      queryClient.setQueryData(qk.issueSuggestion(issueId), suggestion);
-    }
-  });
-
-  const issue = issueQuery.data;
-  const issuePayload = useMemo(
-    () => ({
-      title: titleTouched ? title : issue?.title,
-      description: descriptionTouched ? description : issue?.description
-    }),
-    [description, descriptionTouched, issue?.description, issue?.title, title, titleTouched]
-  );
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const isTypingTarget =
-        target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-        event.preventDefault();
-        if (editing) {
-          updateIssue.mutate({
-            title: issuePayload.title,
-            description: issuePayload.description
-          });
-        }
-      }
-      if (!isTypingTarget && event.key.toLowerCase() === 'e' && !event.metaKey && !event.ctrlKey) {
-        setEditing((value) => !value);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [editing, issuePayload.description, issuePayload.title, updateIssue]);
-  const allowedTransitions = useMemo(
-    () => transitions.filter((transition) => transition.from_status === issue?.status).map((transition) => transition.to_status),
-    [issue?.status, transitions]
-  );
 
   if (issueQuery.isPending) {
     return (
@@ -169,142 +149,80 @@ export default function IssueDetailPage() {
       <div className="space-y-4">
         <Card>
           <CardHeader><CardTitle>Issue details</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            <Input
-              defaultValue={issue?.title}
-              onChange={(e) => {
-                setTitle(e.target.value);
-                setTitleTouched(true);
-              }}
-              placeholder="Title"
-              readOnly={!editing}
-            />
-            <Textarea
-              defaultValue={issue?.description}
-              onChange={(e) => {
-                setDescription(e.target.value);
-                setDescriptionTouched(true);
-              }}
-              placeholder="Description"
-              readOnly={!editing}
-            />
-            {issueSummaryQuery.data?.summary ? (
-              <div className="rounded-md border bg-accent/40 p-3 text-sm">
-                <div className="mb-1 font-medium">AI Summary</div>
-                <div>{issueSummaryQuery.data.summary}</div>
+          <CardContent className="space-y-4">
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Title</p>
+              <InlineEdit
+                value={issue?.title ?? ''}
+                onSave={(value) => updateIssue.mutate({ title: value })}
+                className="font-medium"
+                placeholder="Issue title"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Description (click to edit)</p>
+              <InlineTextarea
+                value={issue?.description ?? ''}
+                onSave={(value) => updateIssue.mutate({ description: value })}
+              />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Priority</p>
+                <Select value={issue?.priority ?? 'medium'} onChange={(event) => updateIssue.mutate({ priority: event.target.value })}>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </Select>
               </div>
-            ) : null}
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Assignee (UUID)</p>
+                <InlineEdit
+                  value={issue?.assignee_id ?? ''}
+                  onSave={(value) => updateIssue.mutate({ assignee_id: value || null })}
+                  placeholder="Click to assign"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Labels (comma separated)</p>
+              <InlineEdit
+                value={(issue?.labels ?? []).join(', ')}
+                onSave={(value) =>
+                  updateIssue.mutate({
+                    labels: value.split(',').map((item) => item.trim()).filter(Boolean)
+                  })
+                }
+                placeholder="Click to add labels"
+              />
+            </div>
+
             <div className="flex items-center gap-2">
               <Badge>{issue?.status ?? 'unknown'}</Badge>
-              <Badge>{formatAssignee(issue?.assignee_id)}</Badge>
+              <Badge>⏱ Cycle time: {(cycleTimeQuery.data?.avg_days ?? 0).toFixed(1)} days</Badge>
             </div>
+
             <div className="grid gap-2 md:grid-cols-[1fr_auto]">
-              <Select value={nextStatus} onChange={(e) => setNextStatus(e.target.value)}>
+              <Select value={nextStatus} onChange={(event) => setNextStatus(event.target.value)}>
                 <option value="">Select workflow transition</option>
                 {allowedTransitions.map((status) => (
                   <option key={status} value={status}>{status}</option>
                 ))}
               </Select>
-              <Button
-                variant="outline"
-                onClick={() => nextStatus && transitionIssue.mutate(nextStatus)}
-                disabled={!nextStatus || transitionIssue.isPending}
-              >
+              <Button variant="outline" onClick={() => nextStatus && transitionIssue.mutate(nextStatus)} disabled={!nextStatus || transitionIssue.isPending}>
                 Apply transition
               </Button>
             </div>
+
             <div className="flex gap-2">
-              <Button
-                onClick={() =>
-                  updateIssue.mutate({
-                    title: issuePayload.title,
-                    description: issuePayload.description
-                  })
-                }
-                disabled={updateIssue.isPending || !editing}
-              >
-                Update issue
-              </Button>
-              <Button variant="outline" onClick={() => setEditing((v) => !v)}>{editing ? 'View mode' : 'Quick edit (E)'}</Button>
-              <Button variant="outline" onClick={() => issueSummaryQuery.refetch()} disabled={issueSummaryQuery.isFetching}>✨ Summarize</Button>
-              <Button
-                variant="outline"
-                onClick={() =>
-                    suggestFieldsMutation.mutate({
-                    title: issuePayload.title ?? '',
-                    description: issuePayload.description ?? ''
-                  })
-                }
-                disabled={suggestFieldsMutation.isPending}
-              >
-                ✨ Suggest Fields
-              </Button>
+              <Button variant="outline" onClick={() => toast({ title: 'AI Summary', description: 'Coming soon 🚧' })}>✨ Summarize</Button>
+              <Button variant="outline" onClick={() => toast({ title: 'AI Suggestions', description: 'Coming soon 🚧' })}>✨ Suggest Fields</Button>
               <Button variant="outline" onClick={() => timeMutation.mutate('start')}>Start timer</Button>
               <Button variant="outline" onClick={() => timeMutation.mutate('stop')}>Stop timer</Button>
             </div>
-            {pendingSuggestion ? (
-              <div className="space-y-2 rounded-md border p-3 text-sm">
-                <div className="font-medium">AI field suggestions</div>
-                {!ignoredSuggestionFields.type ? (
-                  <div className="flex items-center justify-between gap-2">
-                    <span>Type: {pendingSuggestion.type}</span>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          updateIssue.mutate({ issue_type: pendingSuggestion.type });
-                          setIgnoredSuggestionFields((current) => ({ ...current, type: true }));
-                        }}
-                      >
-                        Apply
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setIgnoredSuggestionFields((current) => ({ ...current, type: true }))}>
-                        Ignore
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-                {!ignoredSuggestionFields.priority ? (
-                  <div className="flex items-center justify-between gap-2">
-                    <span>Priority: {pendingSuggestion.priority}</span>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          updateIssue.mutate({ priority: pendingSuggestion.priority });
-                          setIgnoredSuggestionFields((current) => ({ ...current, priority: true }));
-                        }}
-                      >
-                        Apply
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setIgnoredSuggestionFields((current) => ({ ...current, priority: true }))}>
-                        Ignore
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-                {!ignoredSuggestionFields.labels ? (
-                  <div className="flex items-center justify-between gap-2">
-                    <span>Labels: {(pendingSuggestion.labels ?? []).join(', ') || 'none'}</span>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          updateIssue.mutate({ labels: pendingSuggestion.labels });
-                          setIgnoredSuggestionFields((current) => ({ ...current, labels: true }));
-                        }}
-                      >
-                        Apply
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setIgnoredSuggestionFields((current) => ({ ...current, labels: true }))}>
-                        Ignore
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {editing ? <p className="text-xs text-muted-foreground">Tip: press Ctrl/Cmd+S to save quickly.</p> : null}
           </CardContent>
         </Card>
 
@@ -328,5 +246,39 @@ export default function IssueDetailPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function InlineTextarea({ value, onSave }: { value: string; onSave: (value: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  if (editing) {
+    return (
+      <Textarea
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          setEditing(false);
+          if (draft !== value) onSave(draft);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            setDraft(value);
+            setEditing(false);
+          }
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            setEditing(false);
+            if (draft !== value) onSave(draft);
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <button type="button" className="w-full rounded-md border p-2 text-left text-sm hover:bg-accent" onClick={() => setEditing(true)}>
+      {value || 'Click to add description'}
+    </button>
   );
 }
