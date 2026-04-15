@@ -42,7 +42,7 @@ export function NotificationsPanel() {
         {unreadCount > 0 ? <Badge className="absolute -right-2 -top-2 px-1 py-0 text-[10px]">{unreadCount}</Badge> : null}
       </Button>
       {open ? (
-        <div className="absolute right-0 z-40 mt-2 w-[360px] rounded-md border bg-white shadow-lg">
+        <div className="absolute right-0 z-40 mt-2 w-[360px] rounded-md border bg-background shadow-lg">
           <div className="flex items-center justify-between border-b p-3">
             <div className="text-sm font-semibold">Notifications</div>
             <button

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Search, Moon, Sun } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAppStore } from '@/store/useAppStore';
@@ -13,8 +13,10 @@ import { NotificationsPanel } from '@/components/layout/notifications-panel';
 import { qk } from '@/lib/query-keys';
 import { apiRequest } from '@/lib/api';
 import type { IssueSearchSuggestions } from '@/types';
+import { toast } from '@/components/ui/toast';
 
 export function Topbar() {
+  const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const openPalette = useAppStore((s) => s.setCommandPaletteOpen);
   const jqlSearch = useAppStore((s) => s.jqlSearch);
@@ -27,22 +29,49 @@ export function Topbar() {
     queryKey: qk.issueSearchSuggestions,
     queryFn: () => apiRequest<IssueSearchSuggestions>('/issues/search/suggestions')
   });
+  const saveQueryMutation = useMutation({
+    mutationFn: async ({ name, query }: { name: string; query: string }) =>
+      apiRequest('/issues/queries/saved', { method: 'POST', body: JSON.stringify({ name, query }) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: qk.issueSearchSuggestions, exact: true });
+      queryClient.invalidateQueries({ queryKey: qk.issueSavedQueries, exact: true });
+      toast({ title: 'Saved filter created', variant: 'success' });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Unable to save filter',
+        description: error instanceof Error ? error.message : 'Try again with a valid query.',
+        variant: 'error'
+      });
+    }
+  });
   const suggestions = useMemo(() => {
     const dynamic = suggestionsQuery.data;
-    const query = jqlSearch.trim().toLowerCase();
-    if (query.endsWith('status=')) return dynamic?.statuses ?? ['todo', 'in_progress', 'done'];
-    if (query.endsWith('assignee=')) {
+    const query = jqlSearch.trim();
+    const queryLower = query.toLowerCase();
+    const lastToken = queryLower.split(/\s+/).pop() ?? '';
+    if (queryLower.endsWith('status=')) return dynamic?.statuses ?? ['todo', 'in_progress', 'done'];
+    if (queryLower.endsWith('assignee=')) {
       const users = dynamic?.assignees.map((a) => a.id);
       return ['me', 'mine', ...(users ?? [])];
     }
-    if (query.endsWith('priority=')) return dynamic?.priorities ?? ['low', 'medium', 'high', 'critical'];
-    if (query.endsWith('type=')) return dynamic?.types ?? ['task', 'story', 'bug', 'epic'];
-    if (query.endsWith('label=')) return dynamic?.labels ?? [];
-    return [
+    if (queryLower.endsWith('priority=')) return dynamic?.priorities ?? ['low', 'medium', 'high', 'critical'];
+    if (queryLower.endsWith('type=')) return dynamic?.types ?? ['task', 'story', 'bug', 'epic'];
+    if (queryLower.endsWith('label=')) return dynamic?.labels ?? [];
+    const baseSuggestions = [
       ...(dynamic?.fields ?? ['status', 'assignee', 'priority', 'label', 'sprint', 'type', 'title', 'project']).map((f) => `${f}=`),
       'title~"payment bug"',
       'status=done AND assignee=me'
     ];
+    if (!lastToken) {
+      return baseSuggestions;
+    }
+    const ranked = baseSuggestions
+      .map((item) => ({ item, score: item.toLowerCase().indexOf(lastToken) }))
+      .filter((item) => item.score >= 0)
+      .sort((a, b) => a.score - b.score)
+      .map((item) => item.item);
+    return ranked.length ? ranked : baseSuggestions;
   }, [jqlSearch, suggestionsQuery.data]);
   const savedQueries = suggestionsQuery.data?.saved ?? [];
   const recentQueries = suggestionsQuery.data?.recent ?? [];
@@ -105,6 +134,22 @@ export function Topbar() {
         </select>
         <Button type="button" variant="outline" size="sm" onClick={() => openPalette(true)}>
           Ctrl+K
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={saveQueryMutation.isPending || !jqlSearch.trim()}
+          onClick={() => {
+            const query = jqlSearch.trim();
+            if (!query) return;
+            const defaultName = `Filter ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
+            const name = window.prompt('Saved filter name', defaultName)?.trim();
+            if (!name) return;
+            saveQueryMutation.mutate({ name, query });
+          }}
+        >
+          Save
         </Button>
         {showMenu && suggestions.length > 0 ? (
           <div className="absolute left-2 right-2 top-12 z-20 max-h-56 overflow-auto rounded-md border bg-background shadow-lg">

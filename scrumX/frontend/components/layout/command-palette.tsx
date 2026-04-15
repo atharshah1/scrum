@@ -106,7 +106,7 @@ export function CommandPalette() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-20" onClick={() => setOpen(false)}>
-      <div className="w-[560px] rounded-lg border bg-white p-2 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-[560px] rounded-lg border bg-background p-2 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}

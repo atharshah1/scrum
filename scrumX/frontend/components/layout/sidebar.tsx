@@ -18,7 +18,7 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 border-r bg-white p-3">
+    <aside className="w-64 border-r bg-background p-3">
       <div className="mb-4 px-2 text-lg font-semibold">scrumX</div>
       <nav className="space-y-1">
         {items.map((item) => (

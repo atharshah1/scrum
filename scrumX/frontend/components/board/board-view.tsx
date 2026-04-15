@@ -223,7 +223,7 @@ function IssueCard({ boardId, issue, transitions }: { boardId: string; issue: Is
     <div
       ref={setNodeRef}
       style={style}
-      className="group cursor-grab rounded-md border bg-white p-3 text-sm shadow-sm active:cursor-grabbing"
+      className="group cursor-grab rounded-md border bg-background p-3 text-sm shadow-sm active:cursor-grabbing"
       {...listeners}
       {...attributes}
     >
