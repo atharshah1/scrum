@@ -31,16 +31,21 @@ func (h *Handler) stuck(c *fiber.Ctx) error {
 		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
 	}
 
+	thresholdDays := c.QueryInt("threshold_days", 2)
+	if thresholdDays <= 0 {
+		thresholdDays = 2
+	}
+
 	query := `SELECT id, title, status, updated_at
 FROM issues
-WHERE org_id=$1 AND deleted_at IS NULL AND status != 'done' AND updated_at < NOW() - INTERVAL '2 days'`
-	args := []any{orgID}
+WHERE org_id=$1 AND deleted_at IS NULL AND status != 'done' AND updated_at < NOW() - ($2::int * INTERVAL '1 day')`
+	args := []any{orgID, thresholdDays}
 	if rawProjectID := c.Query("project_id"); rawProjectID != "" {
 		projectID, err := uuid.Parse(rawProjectID)
 		if err != nil {
 			return utils.JSONError(c, fiber.StatusBadRequest, "invalid project_id")
 		}
-		query += " AND project_id=$2"
+		query += " AND project_id=$3"
 		args = append(args, projectID)
 	}
 	query += " ORDER BY updated_at ASC"
@@ -69,7 +74,10 @@ WHERE org_id=$1 AND deleted_at IS NULL AND status != 'done' AND updated_at < NOW
 	if err := rows.Err(); err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return utils.JSONSuccess(c, fiber.StatusOK, items)
+	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{
+		"items":          items,
+		"threshold_days": thresholdDays,
+	})
 }
 
 func (h *Handler) bottlenecks(c *fiber.Ctx) error {

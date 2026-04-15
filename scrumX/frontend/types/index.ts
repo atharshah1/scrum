@@ -77,6 +77,11 @@ export type StuckIssue = {
   updated_at: string;
 };
 
+export type StuckInsightResponse = {
+  items: StuckIssue[];
+  threshold_days: number;
+};
+
 export type BottleneckInsight = {
   status: string;
   avg_days: number;

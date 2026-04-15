@@ -251,11 +251,11 @@ function IssueCard({ boardId, issue, transitions }: { boardId: string; issue: Is
             ))}
           </Select>
           <div className="flex gap-2">
-            <Input value={assignee} onChange={(event) => setAssignee(event.target.value)} placeholder="👤 assignee UUID" />
+            <Input aria-label="Assignee UUID" value={assignee} onChange={(event) => setAssignee(event.target.value)} placeholder="Assignee UUID" />
             <Button size="sm" variant="outline" onClick={() => quickUpdate.mutate({ assignee_id: assignee || null })}>Save</Button>
           </div>
           <div className="flex gap-2">
-            <Input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="🏷 label" />
+            <Input aria-label="Label" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Label" />
             <Button size="sm" variant="outline" onClick={() => label && addLabel.mutate(label)}>Add</Button>
           </div>
         </div>

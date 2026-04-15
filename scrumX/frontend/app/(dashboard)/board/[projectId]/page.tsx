@@ -9,7 +9,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { apiRequest } from '@/lib/api';
 import { qk } from '@/lib/query-keys';
-import type { Board, StuckIssue, WorkflowTransition } from '@/types';
+import type { Board, StuckInsightResponse, WorkflowTransition } from '@/types';
+
+const STUCK_THRESHOLD_DAYS = 2;
 
 const defaultTransitions: WorkflowTransition[] = [
   { id: 'todo-in-progress', from_status: 'todo', to_status: 'in_progress', conditions: {}, validators: {}, post_functions: {} },
@@ -43,13 +45,16 @@ export default function BoardPage() {
 
   const stuckQuery = useQuery({
     queryKey: qk.insightsStuck(boardId),
-    queryFn: () => apiRequest<StuckIssue[]>(`/insights/stuck?project_id=${boardQuery.data?.project_id ?? ''}`),
+    queryFn: () =>
+      apiRequest<StuckInsightResponse>(
+        `/insights/stuck?project_id=${boardQuery.data?.project_id ?? ''}&threshold_days=${STUCK_THRESHOLD_DAYS}`
+      ),
     enabled: !!boardQuery.data?.project_id
   });
 
   const filteredBoard = useMemo(() => {
     if (!boardQuery.data || !showOnlyStuck) return boardQuery.data;
-    const stuckIDs = new Set((stuckQuery.data ?? []).map((item) => item.id));
+    const stuckIDs = new Set((stuckQuery.data?.items ?? []).map((item) => item.id));
     return {
       ...boardQuery.data,
       columns: boardQuery.data.columns.map((column) => ({
@@ -86,10 +91,10 @@ export default function BoardPage() {
 
   return (
     <div className="space-y-3">
-      {(stuckQuery.data?.length ?? 0) > 0 ? (
+      {(stuckQuery.data?.items.length ?? 0) > 0 ? (
         <Card>
           <CardContent className="flex items-center justify-between gap-3 p-3 text-sm">
-            <span>⚠ {stuckQuery.data?.length} stuck tasks older than 2 days.</span>
+            <span>⚠ {stuckQuery.data?.items.length} stuck tasks older than {stuckQuery.data?.threshold_days ?? STUCK_THRESHOLD_DAYS} days.</span>
             <Button size="sm" variant="outline" onClick={() => setShowOnlyStuck((value) => !value)}>
               {showOnlyStuck ? 'Show all' : 'Filter stuck'}
             </Button>
