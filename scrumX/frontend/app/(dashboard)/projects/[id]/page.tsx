@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,10 @@ export default function ProjectDetailPage() {
   const projectId = params.id;
   const [text, setText] = useState('');
   const [mockDrafts, setMockDrafts] = useState<AIIssueDraft[]>([]);
+
+  useEffect(() => {
+    setMockDrafts([]);
+  }, [text]);
 
   const issuesQuery = useQuery({
     queryKey: qk.issues(`project-${projectId}`),

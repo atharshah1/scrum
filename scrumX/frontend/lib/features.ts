@@ -2,16 +2,15 @@ import type { AIIssueDraft } from '@/types';
 
 type FeatureKey = 'AI' | 'INSIGHTS';
 
-function readFlag(name: string, fallback: boolean) {
-  const value = process.env[name];
+function parseFlag(value: string | undefined, fallback: boolean) {
   if (value === undefined) return fallback;
   return value.toLowerCase() === 'true';
 }
 
 export const features: Record<FeatureKey, boolean> & { AI_DEV_MOCKS: boolean } = {
-  AI: readFlag('NEXT_PUBLIC_FEATURE_AI', false),
-  INSIGHTS: readFlag('NEXT_PUBLIC_FEATURE_INSIGHTS', true),
-  AI_DEV_MOCKS: readFlag('NEXT_PUBLIC_FEATURE_AI_DEV_MOCKS', true)
+  AI: parseFlag(process.env.NEXT_PUBLIC_FEATURE_AI, false),
+  INSIGHTS: parseFlag(process.env.NEXT_PUBLIC_FEATURE_INSIGHTS, true),
+  AI_DEV_MOCKS: parseFlag(process.env.NEXT_PUBLIC_FEATURE_AI_DEV_MOCKS, false)
 };
 
 export const comingSoonContent: Record<FeatureKey, { title: string; description: string; hint: string }> = {
@@ -28,7 +27,7 @@ export const comingSoonContent: Record<FeatureKey, { title: string; description:
 };
 
 export function getAIIssueDraftMocks(sourceText: string): AIIssueDraft[] {
-  if (features.AI || process.env.NODE_ENV !== 'development' || !features.AI_DEV_MOCKS) {
+  if (features.AI || !features.AI_DEV_MOCKS) {
     return [];
   }
   const trimmed = sourceText.trim();
