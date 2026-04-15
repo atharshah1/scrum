@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/atharshah1/scrum/scrumX/cli/internal/api"
 	"github.com/atharshah1/scrum/scrumX/cli/internal/utils"
@@ -538,7 +539,7 @@ var issueCommentListCmd = &cobra.Command{
 		}
 		rows := make([][]string, 0, len(items))
 		for _, item := range items {
-			rows = append(rows, []string{item.ID, item.AuthorID, item.Body, item.CreatedAt.Local().Format("2006-01-02 15:04:05")})
+			rows = append(rows, []string{item.ID, item.AuthorID, item.Body, item.CreatedAt.Local().Format(time.RFC3339)})
 		}
 		utils.PrintTable([]string{"ID", "AUTHOR", "BODY", "CREATED"}, rows)
 		return nil
