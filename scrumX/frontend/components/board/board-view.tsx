@@ -157,8 +157,8 @@ function IssueCard({ issue, transitions }: { issue: Issue; transitions: Workflow
       </div>
       <div className="mt-2 flex flex-wrap gap-1">
         {allowedStatuses.map((status) => (
-          <Badge key={status} className="bg-slate-100 text-slate-700">
-            <span aria-hidden>→</span> <span className="sr-only">Transition to </span>{status}
+          <Badge key={status} className="bg-slate-100 text-slate-700" aria-label={`Transition to ${status}`}>
+            <span aria-hidden>→ {status}</span>
           </Badge>
         ))}
       </div>
