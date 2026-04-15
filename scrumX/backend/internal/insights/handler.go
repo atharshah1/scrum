@@ -15,6 +15,8 @@ type Handler struct {
 	db *sql.DB
 }
 
+const defaultStuckThresholdDays = 2
+
 func NewHandler(db *sql.DB) *Handler { return &Handler{db: db} }
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
@@ -31,9 +33,9 @@ func (h *Handler) stuck(c *fiber.Ctx) error {
 		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
 	}
 
-	thresholdDays := c.QueryInt("threshold_days", 2)
+	thresholdDays := c.QueryInt("threshold_days", defaultStuckThresholdDays)
 	if thresholdDays <= 0 {
-		thresholdDays = 2
+		thresholdDays = defaultStuckThresholdDays
 	}
 
 	query := `SELECT id, title, status, updated_at

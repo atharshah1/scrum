@@ -15,7 +15,8 @@ import { formatAssignee } from '@/lib/format';
 import { qk } from '@/lib/query-keys';
 import type { Board, Issue, WorkflowTransition } from '@/types';
 
-// Render in 80-item chunks to keep large columns responsive without full virtualization yet.
+// Render in 80-item chunks based on manual board profiling to keep columns responsive
+// while avoiding expensive full-list re-renders before virtualization is added.
 const ISSUE_BATCH_SIZE = 80;
 
 function canTransition(status: string, nextStatus: string, transitions: WorkflowTransition[]) {
