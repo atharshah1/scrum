@@ -2,12 +2,12 @@ package ai
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
-	"strings"
 
-	"github.com/atharshah1/scrum/scrumX/backend/internal/issues"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/authz"
+	"github.com/atharshah1/scrum/scrumX/backend/internal/issues"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/utils"
 	"github.com/gofiber/fiber/v2"
@@ -15,31 +15,31 @@ import (
 )
 
 type Handler struct {
-	service      *Service
-	issueService *issues.Service
-	fromTextEnabled bool
+	service             *Service
+	issueService        *issues.Service
+	fromTextEnabled     bool
 	fromTextLimitPerMin int
-	fromTextDailyQuota int
-	fromTextMaxChars int
-	mu sync.Mutex
-	perMinute map[string]int
-	perMinuteWindow time.Time
-	perDay map[string]int
-	perDayWindow string
+	fromTextDailyQuota  int
+	fromTextMaxChars    int
+	mu                  sync.Mutex
+	perMinute           map[string]int
+	perMinuteWindow     time.Time
+	perDay              map[string]int
+	perDayWindow        string
 }
 
 func NewHandler(service *Service, issueService *issues.Service, fromTextEnabled bool, limitPerMin int, dailyQuota int, maxChars int) *Handler {
 	return &Handler{
-		service: service,
-		issueService: issueService,
-		fromTextEnabled: fromTextEnabled,
+		service:             service,
+		issueService:        issueService,
+		fromTextEnabled:     fromTextEnabled,
 		fromTextLimitPerMin: limitPerMin,
-		fromTextDailyQuota: dailyQuota,
-		fromTextMaxChars: maxChars,
-		perMinute: map[string]int{},
-		perMinuteWindow: time.Now().UTC().Truncate(time.Minute),
-		perDay: map[string]int{},
-		perDayWindow: time.Now().UTC().Format("2006-01-02"),
+		fromTextDailyQuota:  dailyQuota,
+		fromTextMaxChars:    maxChars,
+		perMinute:           map[string]int{},
+		perMinuteWindow:     time.Now().UTC().Truncate(time.Minute),
+		perDay:              map[string]int{},
+		perDayWindow:        time.Now().UTC().Format("2006-01-02"),
 	}
 }
 

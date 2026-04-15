@@ -84,13 +84,13 @@ type RecentIssueQuery struct {
 }
 
 type IssueSearchSuggestions struct {
-	Fields     []string         `json:"fields"`
-	Statuses   []string         `json:"statuses"`
-	Priorities []string         `json:"priorities"`
-	Types      []string         `json:"types"`
-	Labels     []string         `json:"labels"`
-	Assignees  []IssueAssignee  `json:"assignees"`
-	Saved      []SavedIssueQuery `json:"saved,omitempty"`
+	Fields     []string           `json:"fields"`
+	Statuses   []string           `json:"statuses"`
+	Priorities []string           `json:"priorities"`
+	Types      []string           `json:"types"`
+	Labels     []string           `json:"labels"`
+	Assignees  []IssueAssignee    `json:"assignees"`
+	Saved      []SavedIssueQuery  `json:"saved,omitempty"`
 	Recent     []RecentIssueQuery `json:"recent,omitempty"`
 }
 

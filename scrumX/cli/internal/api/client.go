@@ -131,6 +131,21 @@ type IssueComment struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type SavedIssueQuery struct {
+	ID        string    `json:"id"`
+	OrgID     string    `json:"org_id"`
+	UserID    string    `json:"user_id"`
+	Name      string    `json:"name"`
+	Query     string    `json:"query"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type RecentIssueQuery struct {
+	Query      string    `json:"query"`
+	LastUsedAt time.Time `json:"last_used_at"`
+}
+
 type envelope[T any] struct {
 	Success bool `json:"success"`
 	Data    T    `json:"data"`
@@ -319,6 +334,37 @@ func (c *Client) SearchIssues(queryText string, page, limit int) ([]Issue, error
 	if err == nil {
 		c.cacheWrite("issues", c.cacheScope()+"|"+path, out.Data)
 	}
+	return out.Data, err
+}
+
+func (c *Client) SaveIssueQuery(name, queryText string) (SavedIssueQuery, error) {
+	payload := map[string]string{
+		"name":  strings.TrimSpace(name),
+		"query": strings.TrimSpace(queryText),
+	}
+	var out envelope[SavedIssueQuery]
+	_, err := c.authedRequest(http.MethodPost, "/issues/queries/saved", payload, &out)
+	return out.Data, err
+}
+
+func (c *Client) ListSavedIssueQueries() ([]SavedIssueQuery, error) {
+	var out envelope[[]SavedIssueQuery]
+	_, err := c.authedRequest(http.MethodGet, "/issues/queries/saved", nil, &out)
+	return out.Data, err
+}
+
+func (c *Client) DeleteSavedIssueQuery(id string) error {
+	_, err := c.authedRequest(http.MethodDelete, "/issues/queries/saved/"+strings.TrimSpace(id), nil, nil)
+	return err
+}
+
+func (c *Client) ListRecentIssueQueries(limit int) ([]RecentIssueQuery, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	path := fmt.Sprintf("/issues/queries/recent?limit=%d", limit)
+	var out envelope[[]RecentIssueQuery]
+	_, err := c.authedRequest(http.MethodGet, path, nil, &out)
 	return out.Data, err
 }
 

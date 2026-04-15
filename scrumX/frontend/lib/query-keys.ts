@@ -15,5 +15,8 @@ export const qk = {
   automationRules: ['automation-rules'] as const,
   releases: ['releases'] as const,
   incidents: ['incidents'] as const,
-  notifications: (scope = 'all') => ['notifications', scope] as const
+  notifications: (scope = 'all') => ['notifications', scope] as const,
+  issueSearchSuggestions: ['issue-search-suggestions'] as const,
+  issueSavedQueries: ['issue-saved-queries'] as const,
+  issueRecentQueries: ['issue-recent-queries'] as const
 };

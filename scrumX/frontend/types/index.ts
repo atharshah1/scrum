@@ -159,3 +159,35 @@ export type ScrumEvent = {
   payload: Record<string, unknown>;
   created_at: string;
 };
+
+export type SavedIssueQuery = {
+  id: string;
+  org_id: string;
+  user_id: string;
+  name: string;
+  query: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RecentIssueQuery = {
+  query: string;
+  last_used_at: string;
+};
+
+export type IssueSearchAssignee = {
+  id: string;
+  email: string;
+  full_name: string;
+};
+
+export type IssueSearchSuggestions = {
+  fields: string[];
+  statuses: string[];
+  priorities: string[];
+  types: string[];
+  labels: string[];
+  assignees: IssueSearchAssignee[];
+  saved?: SavedIssueQuery[];
+  recent?: RecentIssueQuery[];
+};

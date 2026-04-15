@@ -7,68 +7,68 @@ import (
 )
 
 type Config struct {
-	AppEnv               string
-	Port                 string
-	DatabaseURL          string
-	JWTSecret            string
-	JWTRefreshSecret     string
-	AIProvider           string
-	AIAPIKey             string
-	AITimeout            time.Duration
-	MetricsToken         string
-	KafkaEnabled         bool
-	KafkaBrokers         string
-	AutomationKafkaTopic string
-	AutomationKafkaGroup string
-	KafkaBatchTimeout    time.Duration
-	AutomationWorkers    int
-	AutomationMaxRetries int
-	AutomationBackoff    time.Duration
-	WebhookTimeout       time.Duration
-	WebsocketBufferSize  int
-	NotifyActor          bool
-	CacheTTL             time.Duration
-	RedisEnabled         bool
-	RedisAddr            string
-	RedisPassword        string
-	RedisDB              int
-	AIFromTextEnabled    bool
+	AppEnv                string
+	Port                  string
+	DatabaseURL           string
+	JWTSecret             string
+	JWTRefreshSecret      string
+	AIProvider            string
+	AIAPIKey              string
+	AITimeout             time.Duration
+	MetricsToken          string
+	KafkaEnabled          bool
+	KafkaBrokers          string
+	AutomationKafkaTopic  string
+	AutomationKafkaGroup  string
+	KafkaBatchTimeout     time.Duration
+	AutomationWorkers     int
+	AutomationMaxRetries  int
+	AutomationBackoff     time.Duration
+	WebhookTimeout        time.Duration
+	WebsocketBufferSize   int
+	NotifyActor           bool
+	CacheTTL              time.Duration
+	RedisEnabled          bool
+	RedisAddr             string
+	RedisPassword         string
+	RedisDB               int
+	AIFromTextEnabled     bool
 	AIFromTextLimitPerMin int
-	AIFromTextDailyQuota int
-	AIFromTextMaxChars   int
+	AIFromTextDailyQuota  int
+	AIFromTextMaxChars    int
 }
 
 func Load() Config {
 	return Config{
-		AppEnv:               getEnv("APP_ENV", "dev"),
-		Port:                 getEnv("PORT", "8080"),
-		DatabaseURL:          getEnv("DATABASE_URL", "postgres://postgres:postgres@postgres:5432/scrumx?sslmode=disable"),
-		JWTSecret:            getEnv("JWT_SECRET", "change-me-access"),
-		JWTRefreshSecret:     getEnv("JWT_REFRESH_SECRET", "change-me-refresh"),
-		AIProvider:           getEnv("AI_PROVIDER", "openai"),
-		AIAPIKey:             getEnv("AI_API_KEY", ""),
-		AITimeout:            time.Duration(getEnvInt("AI_TIMEOUT_SECONDS", 3)) * time.Second,
-		MetricsToken:         getEnv("METRICS_TOKEN", ""),
-		KafkaEnabled:         getEnvBool("KAFKA_ENABLED", false),
-		KafkaBrokers:         getEnv("KAFKA_BROKERS", "kafka:9092"),
-		AutomationKafkaTopic: getEnv("AUTOMATION_KAFKA_TOPIC", "automation.events"),
-		AutomationKafkaGroup: getEnv("AUTOMATION_KAFKA_GROUP", "automation-workers"),
-		KafkaBatchTimeout:    time.Duration(getEnvInt("KAFKA_BATCH_TIMEOUT_MS", 20)) * time.Millisecond,
-		AutomationWorkers:    getEnvInt("AUTOMATION_WORKERS", 2),
-		AutomationMaxRetries: getEnvInt("AUTOMATION_MAX_RETRIES", 2),
-		AutomationBackoff:    time.Duration(getEnvInt("AUTOMATION_BACKOFF_MS", 200)) * time.Millisecond,
-		WebhookTimeout:       time.Duration(getEnvInt("WEBHOOK_TIMEOUT_SECONDS", 5)) * time.Second,
-		WebsocketBufferSize:  getEnvInt("WEBSOCKET_BUFFER_SIZE", 64),
-		NotifyActor:          getEnvBool("NOTIFICATIONS_NOTIFY_ACTOR", false),
-		CacheTTL:             time.Duration(getEnvInt("CACHE_TTL_SECONDS", 30)) * time.Second,
-		RedisEnabled:         getEnvBool("REDIS_ENABLED", false),
-		RedisAddr:            getEnv("REDIS_ADDR", "redis:6379"),
-		RedisPassword:        getEnv("REDIS_PASSWORD", ""),
-		RedisDB:              getEnvInt("REDIS_DB", 0),
-		AIFromTextEnabled:    getEnvBool("AI_FROM_TEXT_ENABLED", true),
+		AppEnv:                getEnv("APP_ENV", "dev"),
+		Port:                  getEnv("PORT", "8080"),
+		DatabaseURL:           getEnv("DATABASE_URL", "postgres://postgres:postgres@postgres:5432/scrumx?sslmode=disable"),
+		JWTSecret:             getEnv("JWT_SECRET", "change-me-access"),
+		JWTRefreshSecret:      getEnv("JWT_REFRESH_SECRET", "change-me-refresh"),
+		AIProvider:            getEnv("AI_PROVIDER", "openai"),
+		AIAPIKey:              getEnv("AI_API_KEY", ""),
+		AITimeout:             time.Duration(getEnvInt("AI_TIMEOUT_SECONDS", 3)) * time.Second,
+		MetricsToken:          getEnv("METRICS_TOKEN", ""),
+		KafkaEnabled:          getEnvBool("KAFKA_ENABLED", false),
+		KafkaBrokers:          getEnv("KAFKA_BROKERS", "kafka:9092"),
+		AutomationKafkaTopic:  getEnv("AUTOMATION_KAFKA_TOPIC", "automation.events"),
+		AutomationKafkaGroup:  getEnv("AUTOMATION_KAFKA_GROUP", "automation-workers"),
+		KafkaBatchTimeout:     time.Duration(getEnvInt("KAFKA_BATCH_TIMEOUT_MS", 20)) * time.Millisecond,
+		AutomationWorkers:     getEnvInt("AUTOMATION_WORKERS", 2),
+		AutomationMaxRetries:  getEnvInt("AUTOMATION_MAX_RETRIES", 2),
+		AutomationBackoff:     time.Duration(getEnvInt("AUTOMATION_BACKOFF_MS", 200)) * time.Millisecond,
+		WebhookTimeout:        time.Duration(getEnvInt("WEBHOOK_TIMEOUT_SECONDS", 5)) * time.Second,
+		WebsocketBufferSize:   getEnvInt("WEBSOCKET_BUFFER_SIZE", 64),
+		NotifyActor:           getEnvBool("NOTIFICATIONS_NOTIFY_ACTOR", false),
+		CacheTTL:              time.Duration(getEnvInt("CACHE_TTL_SECONDS", 30)) * time.Second,
+		RedisEnabled:          getEnvBool("REDIS_ENABLED", false),
+		RedisAddr:             getEnv("REDIS_ADDR", "redis:6379"),
+		RedisPassword:         getEnv("REDIS_PASSWORD", ""),
+		RedisDB:               getEnvInt("REDIS_DB", 0),
+		AIFromTextEnabled:     getEnvBool("AI_FROM_TEXT_ENABLED", true),
 		AIFromTextLimitPerMin: getEnvInt("AI_FROM_TEXT_LIMIT_PER_MIN", 10),
-		AIFromTextDailyQuota: getEnvInt("AI_FROM_TEXT_DAILY_QUOTA", 200),
-		AIFromTextMaxChars:   getEnvInt("AI_FROM_TEXT_MAX_CHARS", 4000),
+		AIFromTextDailyQuota:  getEnvInt("AI_FROM_TEXT_DAILY_QUOTA", 200),
+		AIFromTextMaxChars:    getEnvInt("AI_FROM_TEXT_MAX_CHARS", 4000),
 	}
 }
 
