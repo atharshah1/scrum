@@ -1,13 +1,14 @@
 import type { AIIssueDraft } from '@/types';
 
 type FeatureKey = 'AI' | 'INSIGHTS';
+type FeatureFlags = Record<FeatureKey, boolean> & { AI_DEV_MOCKS: boolean };
 
 function parseFlag(value: string | undefined, fallback: boolean) {
   if (value === undefined) return fallback;
   return value.toLowerCase() === 'true';
 }
 
-export const features: Record<FeatureKey, boolean> & { AI_DEV_MOCKS: boolean } = {
+export const features: FeatureFlags = {
   AI: parseFlag(process.env.NEXT_PUBLIC_FEATURE_AI, false),
   INSIGHTS: parseFlag(process.env.NEXT_PUBLIC_FEATURE_INSIGHTS, true),
   AI_DEV_MOCKS: parseFlag(process.env.NEXT_PUBLIC_FEATURE_AI_DEV_MOCKS, false)

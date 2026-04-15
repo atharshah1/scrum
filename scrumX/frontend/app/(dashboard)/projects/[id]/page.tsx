@@ -19,7 +19,7 @@ export default function ProjectDetailPage() {
   const [mockDrafts, setMockDrafts] = useState<AIIssueDraft[]>([]);
 
   useEffect(() => {
-    setMockDrafts([]);
+    setMockDrafts((current) => (current.length ? [] : current));
   }, [text]);
 
   const issuesQuery = useQuery({
