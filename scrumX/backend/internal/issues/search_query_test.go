@@ -83,4 +83,22 @@ func TestBuildIssueConditionSQL_TitleContains(t *testing.T) {
 	if len(args) != 1 {
 		t.Fatalf("expected one arg, got %d", len(args))
 	}
+	if got, ok := args[0].(string); !ok || got != "%p%a%y%" {
+		t.Fatalf("expected fuzzy pattern %%p%%a%%y%%, got %#v", args[0])
+	}
+}
+
+func TestBuildIssueConditionSQL_TitleContainsWithSpaces(t *testing.T) {
+	args := []any{}
+	argN := 1
+	_, err := buildIssueConditionSQL(IssueSearchCondition{Field: "title", Op: "~", Value: "pay bug"}, uuid.New(), &args, &argN)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(args) != 1 {
+		t.Fatalf("expected one arg, got %d", len(args))
+	}
+	if got, ok := args[0].(string); !ok || got != "%p%a%y%b%u%g%" {
+		t.Fatalf("expected fuzzy pattern %%p%%a%%y%%b%%u%%g%%, got %#v", args[0])
+	}
 }

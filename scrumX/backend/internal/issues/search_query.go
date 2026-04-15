@@ -318,22 +318,22 @@ func buildIssueConditionSQL(condition IssueSearchCondition, actorID uuid.UUID, a
 	switch field {
 	case "status":
 		if op == "~" {
-			return "i.status ILIKE " + placeholder("%"+escapeLikePattern(value)+"%") + " ESCAPE '\\'", nil
+			return "i.status ILIKE " + placeholder(buildFuzzyLikePattern(value)) + " ESCAPE '\\'", nil
 		}
 		return "i.status = " + placeholder(strings.ToLower(value)), nil
 	case "priority":
 		if op == "~" {
-			return "i.priority ILIKE " + placeholder("%"+escapeLikePattern(value)+"%") + " ESCAPE '\\'", nil
+			return "i.priority ILIKE " + placeholder(buildFuzzyLikePattern(value)) + " ESCAPE '\\'", nil
 		}
 		return "i.priority = " + placeholder(strings.ToLower(value)), nil
 	case "type":
 		if op == "~" {
-			return "i.issue_type ILIKE " + placeholder("%"+escapeLikePattern(value)+"%") + " ESCAPE '\\'", nil
+			return "i.issue_type ILIKE " + placeholder(buildFuzzyLikePattern(value)) + " ESCAPE '\\'", nil
 		}
 		return "i.issue_type = " + placeholder(strings.ToLower(value)), nil
 	case "labels", "label":
 		if op == "~" {
-			return "EXISTS (SELECT 1 FROM issue_labels l WHERE l.org_id=i.org_id AND l.issue_id=i.id AND l.label ILIKE " + placeholder("%"+escapeLikePattern(strings.ToLower(value))+"%") + " ESCAPE '\\')", nil
+			return "EXISTS (SELECT 1 FROM issue_labels l WHERE l.org_id=i.org_id AND l.issue_id=i.id AND l.label ILIKE " + placeholder(buildFuzzyLikePattern(strings.ToLower(value))) + " ESCAPE '\\')", nil
 		}
 		return "EXISTS (SELECT 1 FROM issue_labels l WHERE l.org_id=i.org_id AND l.issue_id=i.id AND l.label=" + placeholder(strings.ToLower(value)) + ")", nil
 	case "sprint":
@@ -378,7 +378,7 @@ func buildIssueConditionSQL(condition IssueSearchCondition, actorID uuid.UUID, a
 		}
 		return "i.assignee_id = " + placeholder(assigneeID), nil
 	case "title":
-		return "i.title ILIKE " + placeholder("%"+escapeLikePattern(value)+"%") + " ESCAPE '\\'", nil
+		return "i.title ILIKE " + placeholder(buildFuzzyLikePattern(value)) + " ESCAPE '\\'", nil
 	case "project":
 		if op == "~" {
 			return "", &IssueSearchValidationError{
@@ -403,6 +403,30 @@ func buildIssueConditionSQL(condition IssueSearchCondition, actorID uuid.UUID, a
 			Field:   condition.Field,
 		}
 	}
+}
+
+func buildFuzzyLikePattern(value string) string {
+	normalized := strings.TrimSpace(value)
+	if normalized == "" {
+		return "%"
+	}
+	var b strings.Builder
+	b.WriteByte('%')
+	lastWildcard := true
+	for _, r := range normalized {
+		if unicode.IsSpace(r) {
+			if !lastWildcard {
+				b.WriteByte('%')
+				lastWildcard = true
+			}
+			continue
+		}
+		escaped := escapeLikePattern(string(r))
+		b.WriteString(escaped)
+		b.WriteByte('%')
+		lastWildcard = true
+	}
+	return b.String()
 }
 
 func tokenizeIssueSearchQuery(raw string) ([]string, error) {

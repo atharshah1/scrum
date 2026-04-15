@@ -15,6 +15,26 @@ import { apiRequest } from '@/lib/api';
 import type { IssueSearchSuggestions } from '@/types';
 import { toast } from '@/components/ui/toast';
 
+function scoreSuggestion(item: string, token: string): number | null {
+  const normalizedToken = token.trim().toLowerCase();
+  if (!normalizedToken) return 0;
+  const value = item.toLowerCase();
+  if (value.startsWith(normalizedToken)) return 0;
+  const containsAt = value.indexOf(normalizedToken);
+  if (containsAt >= 0) return 100 + containsAt;
+
+  let cursor = 0;
+  let score = 200;
+  for (const ch of normalizedToken) {
+    const idx = value.indexOf(ch, cursor);
+    if (idx === -1) return null;
+    score += idx - cursor;
+    cursor = idx + 1;
+  }
+  score += value.length - normalizedToken.length;
+  return score;
+}
+
 export function Topbar() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
@@ -67,9 +87,9 @@ export function Topbar() {
       return baseSuggestions;
     }
     const ranked = baseSuggestions
-      .map((item) => ({ item, score: item.toLowerCase().indexOf(lastToken) }))
-      .filter((item) => item.score >= 0)
-      .sort((a, b) => a.score - b.score)
+      .map((item) => ({ item, score: scoreSuggestion(item, lastToken) }))
+      .filter((item): item is { item: string; score: number } => item.score !== null)
+      .sort((a, b) => a.score - b.score || a.item.localeCompare(b.item))
       .map((item) => item.item);
     return ranked.length ? ranked : baseSuggestions;
   }, [jqlSearch, suggestionsQuery.data]);
