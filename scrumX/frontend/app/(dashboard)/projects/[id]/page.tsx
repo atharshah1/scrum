@@ -19,10 +19,11 @@ export default function ProjectDetailPage() {
   const [mockDrafts, setMockDrafts] = useState<AIIssueDraft[]>([]);
 
   useEffect(() => {
-    if (mockDrafts.length > 0) {
-      setMockDrafts([]);
-    }
-  }, [mockDrafts.length, text]);
+    setMockDrafts((current) => {
+      if (current.length === 0) return current;
+      return [];
+    });
+  }, [text]);
 
   const issuesQuery = useQuery({
     queryKey: qk.issues(`project-${projectId}`),
