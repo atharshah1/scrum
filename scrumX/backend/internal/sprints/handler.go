@@ -33,6 +33,7 @@ func (h *Handler) RegisterRoutes(api fiber.Router) {
 	r.Post("/:id/start", h.start)
 	r.Post("/:id/end", h.end)
 	r.Post("/:id/issues", h.addIssues)
+	r.Delete("/:id/issues", h.removeIssues)
 }
 
 func (h *Handler) create(c *fiber.Ctx) error {
@@ -208,6 +209,48 @@ WHERE org_id=$2 AND project_id=$3 AND deleted_at IS NULL AND id IN (` + strings.
 	}
 	for _, issueID := range payload.IssueIDs {
 		_ = h.bus.Publish(c.Context(), events.New(orgID, "issue.moved_to_sprint", actorID, map[string]any{"issue_id": issueID, "sprint_id": sprintID}))
+	}
+	h.invalidateProjectCaches(orgID, projectID)
+	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{"sprint_id": sprintID, "updated_issues": len(payload.IssueIDs)})
+}
+
+func (h *Handler) removeIssues(c *fiber.Ctx) error {
+	orgID, ok := middleware.MustOrgID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
+	}
+	actorID, _ := middleware.MustUserID(c)
+	sprintID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, "invalid sprint id")
+	}
+	projectID, err := h.projectIDBySprint(c.Context(), orgID, sprintID)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, "sprint not found")
+	}
+	role, err := h.authz.ResolveProjectRole(c.Context(), orgID, actorID, projectID)
+	if err != nil || !authz.CanWrite(role) {
+		return utils.JSONError(c, fiber.StatusForbidden, "forbidden")
+	}
+	var payload struct {
+		IssueIDs []uuid.UUID `json:"issue_ids"`
+	}
+	if err := c.BodyParser(&payload); err != nil || len(payload.IssueIDs) == 0 {
+		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
+	}
+	placeholders := make([]string, 0, len(payload.IssueIDs))
+	args := []any{orgID, projectID, sprintID}
+	for _, issueID := range payload.IssueIDs {
+		args = append(args, issueID)
+		placeholders = append(placeholders, "$"+itoa(len(args)))
+	}
+	query := `UPDATE issues SET sprint_id=NULL, updated_at=NOW()
+WHERE org_id=$1 AND project_id=$2 AND sprint_id=$3 AND deleted_at IS NULL AND id IN (` + strings.Join(placeholders, ",") + `)`
+	if _, err := h.db.ExecContext(c.Context(), query, args...); err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	for _, issueID := range payload.IssueIDs {
+		_ = h.bus.Publish(c.Context(), events.New(orgID, "issue.removed_from_sprint", actorID, map[string]any{"issue_id": issueID, "sprint_id": sprintID}))
 	}
 	h.invalidateProjectCaches(orgID, projectID)
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{"sprint_id": sprintID, "updated_issues": len(payload.IssueIDs)})

@@ -1,7 +1,15 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+
+	"github.com/atharshah1/scrum/scrumX/cli/cmd"
+)
 
 func main() {
-fmt.Println("scrumX CLI scaffold")
+	if err := cmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }
