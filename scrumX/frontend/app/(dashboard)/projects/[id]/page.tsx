@@ -24,14 +24,14 @@ export default function ProjectDetailPage() {
     queryFn: () => apiRequest<Issue[]>(`/issues?project_id=${projectId}`)
   });
 
-  const generateIssues = async (sourceText: string) =>
+  const generateIssueDrafts = async (sourceText: string) =>
     apiRequest<AIIssueDraft[]>('/ai/issues/from-text', {
       method: 'POST',
       body: JSON.stringify({ text: sourceText, project_id: projectId })
     });
 
   const generateMutation = useMutation({
-    mutationFn: generateIssues,
+    mutationFn: generateIssueDrafts,
     onSuccess: (items) => setDrafts(items)
   });
 
@@ -85,7 +85,7 @@ export default function ProjectDetailPage() {
           <CardHeader><CardTitle>Generated issues</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             {drafts.map((draft, index) => (
-              <div key={`${draft.title}-${index}`} className="grid gap-2 rounded-md border p-3 md:grid-cols-[2fr_2fr_1fr_1fr_auto]">
+              <div key={index} className="grid gap-2 rounded-md border p-3 md:grid-cols-[2fr_2fr_1fr_1fr_auto]">
                 <Input
                   value={draft.title}
                   onChange={(event) =>

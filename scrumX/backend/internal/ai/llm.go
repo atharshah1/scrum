@@ -23,11 +23,11 @@ func (noopClient) GenerateText(context.Context, string) (string, error) {
 	return "", errors.New("llm provider not configured")
 }
 
-func (n noopClient) GenerateIssues(ctx context.Context, prompt string) ([]IssueDraft, error) {
+func (noopClient) GenerateIssues(context.Context, string) ([]IssueDraft, error) {
 	return nil, errors.New("llm provider not configured")
 }
 
-func (n noopClient) GenerateSuggestion(ctx context.Context, prompt string) (*Suggestion, error) {
+func (noopClient) GenerateSuggestion(context.Context, string) (*Suggestion, error) {
 	return nil, errors.New("llm provider not configured")
 }
 

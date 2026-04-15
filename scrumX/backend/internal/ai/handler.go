@@ -1,6 +1,8 @@
 package ai
 
 import (
+	"strings"
+
 	"github.com/atharshah1/scrum/scrumX/backend/internal/issues"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/utils"
@@ -35,6 +37,9 @@ func (h *Handler) generateFromText(c *fiber.Ctx) error {
 	}
 	if payload.ProjectID == uuid.Nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "project_id is required")
+	}
+	if strings.TrimSpace(payload.Text) == "" {
+		return utils.JSONError(c, fiber.StatusBadRequest, "text is required")
 	}
 	drafts, err := h.service.GenerateIssuesFromText(c.Context(), payload.Text)
 	if err != nil {

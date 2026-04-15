@@ -31,6 +31,8 @@ export default function IssueDetailPage() {
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [titleTouched, setTitleTouched] = useState(false);
+  const [descriptionTouched, setDescriptionTouched] = useState(false);
   const [nextStatus, setNextStatus] = useState('');
   const [editing, setEditing] = useState(false);
   const [pendingSuggestion, setPendingSuggestion] = useState<AISuggestion | null>(null);
@@ -119,6 +121,13 @@ export default function IssueDetailPage() {
   });
 
   const issue = issueQuery.data;
+  const issuePayload = useMemo(
+    () => ({
+      title: titleTouched ? title : issue?.title,
+      description: descriptionTouched ? description : issue?.description
+    }),
+    [description, descriptionTouched, issue?.description, issue?.title, title, titleTouched]
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -129,8 +138,8 @@ export default function IssueDetailPage() {
         event.preventDefault();
         if (editing) {
           updateIssue.mutate({
-            title: title || issue?.title || undefined,
-            description: description || issue?.description || undefined
+            title: issuePayload.title,
+            description: issuePayload.description
           });
         }
       }
@@ -140,7 +149,7 @@ export default function IssueDetailPage() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [description, editing, issue?.description, issue?.title, title, updateIssue]);
+  }, [editing, issuePayload.description, issuePayload.title, updateIssue]);
   const allowedTransitions = useMemo(
     () => transitions.filter((transition) => transition.from_status === issue?.status).map((transition) => transition.to_status),
     [issue?.status, transitions]
@@ -161,8 +170,24 @@ export default function IssueDetailPage() {
         <Card>
           <CardHeader><CardTitle>Issue details</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <Input defaultValue={issue?.title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" readOnly={!editing} />
-            <Textarea defaultValue={issue?.description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" readOnly={!editing} />
+            <Input
+              defaultValue={issue?.title}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                setTitleTouched(true);
+              }}
+              placeholder="Title"
+              readOnly={!editing}
+            />
+            <Textarea
+              defaultValue={issue?.description}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                setDescriptionTouched(true);
+              }}
+              placeholder="Description"
+              readOnly={!editing}
+            />
             {issueSummaryQuery.data?.summary ? (
               <div className="rounded-md border bg-accent/40 p-3 text-sm">
                 <div className="mb-1 font-medium">AI Summary</div>
@@ -192,8 +217,8 @@ export default function IssueDetailPage() {
               <Button
                 onClick={() =>
                   updateIssue.mutate({
-                    title: title || issue?.title || undefined,
-                    description: description || issue?.description || undefined
+                    title: issuePayload.title,
+                    description: issuePayload.description
                   })
                 }
                 disabled={updateIssue.isPending || !editing}
@@ -205,9 +230,9 @@ export default function IssueDetailPage() {
               <Button
                 variant="outline"
                 onClick={() =>
-                  suggestFieldsMutation.mutate({
-                    title: title || issue?.title || '',
-                    description: description || issue?.description || ''
+                    suggestFieldsMutation.mutate({
+                    title: issuePayload.title ?? '',
+                    description: issuePayload.description ?? ''
                   })
                 }
                 disabled={suggestFieldsMutation.isPending}

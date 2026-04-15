@@ -2,7 +2,7 @@ package ai
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -33,9 +33,11 @@ type Service struct {
 	timeout time.Duration
 }
 
+const defaultAITimeout = 3 * time.Second
+
 func NewService(llm LLMClient, sharedCache *cache.TTLCache, timeout time.Duration) *Service {
 	if timeout <= 0 {
-		timeout = 3 * time.Second
+		timeout = defaultAITimeout
 	}
 	return &Service{llm: llm, cache: sharedCache, timeout: timeout}
 }
@@ -245,7 +247,11 @@ func heuristicSummary(issue issues.Issue, comments []issues.IssueComment) string
 	if base == "" {
 		base = "This issue tracks implementation details for the requested work."
 	}
-	summary := fmt.Sprintf("%s: %s", strings.TrimSpace(issue.Title), base)
+	title := strings.TrimSpace(issue.Title)
+	if title == "" {
+		title = "Issue"
+	}
+	summary := fmt.Sprintf("%s: %s", title, base)
 	if len(comments) > 0 {
 		summary += fmt.Sprintf(" There are %d comments with additional context.", len(comments))
 	}
@@ -299,12 +305,16 @@ func toSentence(text string) string {
 	if text == "" {
 		return "Untitled issue"
 	}
-	return strings.ToUpper(text[:1]) + text[1:]
+	runes := []rune(text)
+	if len(runes) == 0 {
+		return "Untitled issue"
+	}
+	return strings.ToUpper(string(runes[0])) + string(runes[1:])
 }
 
 func hashPayload(v any) string {
 	raw, _ := json.Marshal(v)
-	sum := sha1.Sum(raw)
+	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }
 
