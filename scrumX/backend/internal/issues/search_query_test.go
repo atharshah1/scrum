@@ -102,3 +102,18 @@ func TestBuildIssueConditionSQL_TitleContainsWithSpaces(t *testing.T) {
 		t.Fatalf("expected fuzzy pattern %%p%%a%%y%%b%%u%%g%%, got %#v", args[0])
 	}
 }
+
+func TestBuildIssueConditionSQL_TitleExact(t *testing.T) {
+	args := []any{}
+	argN := 1
+	sql, err := buildIssueConditionSQL(IssueSearchCondition{Field: "title", Op: "=", Value: "payment bug"}, uuid.New(), &args, &argN)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if sql != "i.title = $1" {
+		t.Fatalf("unexpected SQL: %s", sql)
+	}
+	if len(args) != 1 || args[0] != "payment bug" {
+		t.Fatalf("expected exact value arg, got %#v", args)
+	}
+}

@@ -378,7 +378,10 @@ func buildIssueConditionSQL(condition IssueSearchCondition, actorID uuid.UUID, a
 		}
 		return "i.assignee_id = " + placeholder(assigneeID), nil
 	case "title":
-		return "i.title ILIKE " + placeholder(buildFuzzyLikePattern(value)) + " ESCAPE '\\'", nil
+		if op == "~" {
+			return "i.title ILIKE " + placeholder(buildFuzzyLikePattern(value)) + " ESCAPE '\\'", nil
+		}
+		return "i.title = " + placeholder(value), nil
 	case "project":
 		if op == "~" {
 			return "", &IssueSearchValidationError{
