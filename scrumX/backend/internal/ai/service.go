@@ -90,7 +90,8 @@ func (s *Service) SummarizeIssue(ctx context.Context, issue issues.Issue, commen
 
 Title: %s
 Description: %s
-Comments: %v`, issue.Title, issue.Description, comments)
+Comments:
+%s`, issue.Title, issue.Description, formatCommentsForPrompt(comments))
 
 	summary, err := s.llm.GenerateText(withTimeout, prompt)
 	if err != nil || strings.TrimSpace(summary) == "" {
@@ -274,6 +275,24 @@ func heuristicSuggestion(title, desc string) *Suggestion {
 	})
 }
 
+func formatCommentsForPrompt(comments []issues.IssueComment) string {
+	if len(comments) == 0 {
+		return "No comments"
+	}
+	lines := make([]string, 0, len(comments))
+	for _, comment := range comments {
+		body := strings.TrimSpace(comment.Body)
+		if body == "" {
+			continue
+		}
+		lines = append(lines, "- "+body)
+	}
+	if len(lines) == 0 {
+		return "No comments"
+	}
+	return strings.Join(lines, "\n")
+}
+
 func inferPriority(text string) string {
 	t := strings.ToLower(text)
 	switch {
@@ -308,6 +327,9 @@ func toSentence(text string) string {
 	runes := []rune(text)
 	if len(runes) == 0 {
 		return "Untitled issue"
+	}
+	if len(runes) == 1 {
+		return strings.ToUpper(string(runes[0]))
 	}
 	return strings.ToUpper(string(runes[0])) + string(runes[1:])
 }

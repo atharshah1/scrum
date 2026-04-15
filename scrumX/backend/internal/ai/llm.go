@@ -70,7 +70,10 @@ func (c *openAIClient) GenerateText(ctx context.Context, prompt string) (string,
 		},
 		"temperature": 0.2,
 	}
-	payload, _ := json.Marshal(body)
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader(payload))
 	if err != nil {
 		return "", err
@@ -139,7 +142,10 @@ func (c *geminiClient) GenerateText(ctx context.Context, prompt string) (string,
 			"temperature": 0.2,
 		},
 	}
-	payload, _ := json.Marshal(body)
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", c.model, c.apiKey)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {

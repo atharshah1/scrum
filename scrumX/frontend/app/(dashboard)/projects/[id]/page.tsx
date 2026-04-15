@@ -24,14 +24,14 @@ export default function ProjectDetailPage() {
     queryFn: () => apiRequest<Issue[]>(`/issues?project_id=${projectId}`)
   });
 
-  const generateIssueDrafts = async (sourceText: string) =>
+  const requestIssueDrafts = async (sourceText: string) =>
     apiRequest<AIIssueDraft[]>('/ai/issues/from-text', {
       method: 'POST',
       body: JSON.stringify({ text: sourceText, project_id: projectId })
     });
 
   const generateMutation = useMutation({
-    mutationFn: generateIssueDrafts,
+    mutationFn: requestIssueDrafts,
     onSuccess: (items) => setDrafts(items)
   });
 
