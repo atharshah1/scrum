@@ -161,7 +161,7 @@ func (c *Client) ResolveIssueConflict(idOrIssueID, action string) (offline.Confl
 				item.UpdatedAt = current.UpdatedAt.UTC()
 			}
 			if action == ConflictResolutionKeepBoth {
-				item.Description = appendKeepBothNote(item.Description, conflict, cfg.UserID)
+				item.Description = appendKeepBothNote(item.Description, conflict, cfg.UserID, now)
 			}
 			upsertIssueInState(s, item)
 			payload := toUpdateInput(item)
@@ -201,14 +201,14 @@ func isValidResolutionAction(action string) bool {
 	}
 }
 
-func appendKeepBothNote(description string, conflict offline.ConflictRecord, resolverID string) string {
+func appendKeepBothNote(description string, conflict offline.ConflictRecord, resolverID string, resolvedAt time.Time) string {
 	resolver := strings.TrimSpace(resolverID)
 	if resolver == "" {
 		resolver = "unknown"
 	}
 	lines := []string{
 		"",
-		fmt.Sprintf("[conflict:%s] keep-both resolution by %s at %s", conflict.ID, resolver, time.Now().UTC().Format(time.RFC3339)),
+		fmt.Sprintf("[conflict:%s] keep-both resolution by %s at %s", conflict.ID, resolver, resolvedAt.UTC().Format(time.RFC3339)),
 	}
 	for _, field := range conflict.Fields {
 		if isAdditiveConflictField(field.Field) {
