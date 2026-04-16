@@ -393,22 +393,20 @@ func (c *Client) syncPush(store *offline.Store) error {
 					payload.UpdatedAt = &ts
 				}
 			}
+			effectivePayload := payload
 			updateErr := c.UpdateIssue(target, payload)
-			if updateErr != nil {
-				if strings.Contains(strings.ToLower(updateErr.Error()), "409") || strings.Contains(strings.ToLower(updateErr.Error()), "conflict") {
-					latest, latestErr := c.GetIssue(target)
-					if latestErr == nil {
-						local := fromIssue(latest)
-						applyPatch(&local, payload)
-						merged := toUpdateInput(local)
-						updateErr = c.UpdateIssue(target, merged)
-					}
-				}
+			if updateErr != nil && isConflictErr(updateErr) {
+				effectivePayload, updateErr = c.resolveIssueUpdateConflict(target, state, payload)
 			}
 			if updateErr != nil {
 				op.Attempts++
-				op.LastError = updateErr.Error()
+				op.LastError = fmt.Sprintf("sync update failed for %s: %v", target, updateErr)
 				op.NextAttemptAt = time.Now().Add(offline.Backoff(op.Attempts))
+				if isConflictErr(updateErr) {
+					if body, marshalErr := json.Marshal(effectivePayload); marshalErr == nil {
+						op.Payload = body
+					}
+				}
 				if isConnectivityErr(updateErr) {
 					nextQueue = append(nextQueue, op)
 					nextQueue = append(nextQueue, state.PendingOperations[idx+1:]...)
@@ -575,4 +573,28 @@ func isConnectivityErr(err error) bool {
 		}
 	}
 	return false
+}
+
+func isConflictErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "409") || strings.Contains(msg, "conflict") || strings.Contains(msg, "optimistic lock")
+}
+
+func (c *Client) resolveIssueUpdateConflict(target string, state offline.State, payload UpdateIssueInput) (UpdateIssueInput, error) {
+	latest, err := c.GetIssue(target)
+	if err != nil {
+		return payload, err
+	}
+	merged := fromIssue(latest)
+	if local, ok := state.Issues[target]; ok && local.UpdatedAt.After(merged.UpdatedAt) {
+		merged = local
+	}
+	applyPatch(&merged, payload)
+	retry := toUpdateInput(merged)
+	latestTS := latest.UpdatedAt.UTC()
+	retry.UpdatedAt = &latestTS
+	return retry, c.UpdateIssue(target, retry)
 }
