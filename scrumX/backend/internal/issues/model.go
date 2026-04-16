@@ -54,39 +54,76 @@ type UpdateIssueInput struct {
 }
 
 type ListIssuesFilter struct {
-	ProjectID   uuid.UUID
-	Status      string
-	AssigneeID  uuid.UUID
-	SprintID    uuid.UUID
-	Label       string
-	IssueType   string
-	ParentID    uuid.UUID
-	SearchQuery string
-	SortBy      string
-	Order       string
-	Page        int
-	Limit       int
+	ProjectID    uuid.UUID
+	Status       string
+	AssigneeID   uuid.UUID
+	SprintID     uuid.UUID
+	Label        string
+	IssueType    string
+	ParentID     uuid.UUID
+	UpdatedSince *time.Time
+	SearchQuery  string
+	SortBy       string
+	Order        string
+	Page         int
+	Limit        int
+}
+
+type SavedIssueQuery struct {
+	ID        uuid.UUID `json:"id"`
+	OrgID     uuid.UUID `json:"org_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Name      string    `json:"name"`
+	Query     string    `json:"query"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type RecentIssueQuery struct {
+	Query      string    `json:"query"`
+	LastUsedAt time.Time `json:"last_used_at"`
+}
+
+type IssueSearchSuggestions struct {
+	Fields     []string           `json:"fields"`
+	Statuses   []string           `json:"statuses"`
+	Priorities []string           `json:"priorities"`
+	Types      []string           `json:"types"`
+	Labels     []string           `json:"labels"`
+	Assignees  []IssueAssignee    `json:"assignees"`
+	Saved      []SavedIssueQuery  `json:"saved,omitempty"`
+	Recent     []RecentIssueQuery `json:"recent,omitempty"`
+}
+
+type IssueAssignee struct {
+	ID       uuid.UUID `json:"id"`
+	Email    string    `json:"email"`
+	FullName string    `json:"full_name"`
 }
 
 type IssueComment struct {
-	ID        uuid.UUID `json:"id"`
-	OrgID     uuid.UUID `json:"org_id"`
-	IssueID   uuid.UUID `json:"issue_id"`
-	AuthorID  uuid.UUID `json:"author_id"`
-	Body      string    `json:"body"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          uuid.UUID `json:"id"`
+	OrgID       uuid.UUID `json:"org_id"`
+	IssueID     uuid.UUID `json:"issue_id"`
+	AuthorID    uuid.UUID `json:"author_id"`
+	AuthorEmail string    `json:"author_email,omitempty"`
+	AuthorName  string    `json:"author_name,omitempty"`
+	Body        string    `json:"body"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type IssueActivity struct {
-	ID        uuid.UUID `json:"id"`
-	OrgID     uuid.UUID `json:"org_id"`
-	IssueID   uuid.UUID `json:"issue_id"`
-	ActorID   uuid.UUID `json:"actor_id"`
-	Action    string    `json:"action"`
-	Field     string    `json:"field,omitempty"`
-	FromValue string    `json:"from_value,omitempty"`
-	ToValue   string    `json:"to_value,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         uuid.UUID `json:"id"`
+	OrgID      uuid.UUID `json:"org_id"`
+	IssueID    uuid.UUID `json:"issue_id"`
+	ActorID    uuid.UUID `json:"actor_id"`
+	ActorEmail string    `json:"actor_email,omitempty"`
+	ActorName  string    `json:"actor_name,omitempty"`
+	Action     string    `json:"action"`
+	Field      string    `json:"field,omitempty"`
+	FromValue  string    `json:"from_value,omitempty"`
+	ToValue    string    `json:"to_value,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type WorkflowTransitionRule struct {

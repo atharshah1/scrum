@@ -127,6 +127,11 @@ func (r *Repository) List(ctx context.Context, orgID uuid.UUID, filter ListIssue
 		args = append(args, filter.ParentID)
 		argN++
 	}
+	if filter.UpdatedSince != nil && !filter.UpdatedSince.IsZero() {
+		where = append(where, "i.updated_at >= $"+itoa(argN))
+		args = append(args, filter.UpdatedSince.UTC())
+		argN++
+	}
 	if filter.Label != "" {
 		where = append(where, "EXISTS (SELECT 1 FROM issue_labels l WHERE l.org_id=i.org_id AND l.issue_id=i.id AND l.label=$"+itoa(argN)+")")
 		args = append(args, filter.Label)
@@ -184,6 +189,252 @@ FROM issues i WHERE ` + whereClause + ` ORDER BY ` + orderByClause + ` LIMIT $` 
 		issues[i].Labels = labelsByIssue[issues[i].ID]
 	}
 	return issues, total, rows.Err()
+}
+
+func (r *Repository) Search(ctx context.Context, orgID, actorID uuid.UUID, rawQuery string, page, limit int) ([]Issue, int, IssueSearchAST, error) {
+	expr, ast, err := parseIssueSearchQuery(rawQuery)
+	if err != nil {
+		return nil, 0, IssueSearchAST{}, err
+	}
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	args := []any{orgID}
+	argN := 2
+	clause, err := buildIssueSearchSQL(expr, actorID, &args, &argN)
+	if err != nil {
+		return nil, 0, IssueSearchAST{}, err
+	}
+	whereClause := "i.org_id = $1 AND i.deleted_at IS NULL AND (" + clause + ")"
+
+	var total int
+	countQ := `SELECT COUNT(*) FROM issues i WHERE ` + whereClause
+	if err := r.db.QueryRowContext(ctx, countQ, args...).Scan(&total); err != nil {
+		return nil, 0, IssueSearchAST{}, err
+	}
+
+	offset := (page - 1) * limit
+	query := `SELECT i.id, i.org_id, i.project_id, i.parent_id, i.sprint_id, i.reporter_id, i.assignee_id, i.issue_type, i.title, i.description, i.status, i.priority, i.created_at, i.updated_at
+FROM issues i WHERE ` + whereClause + ` ORDER BY i.updated_at DESC LIMIT $` + itoa(argN) + ` OFFSET $` + itoa(argN+1)
+	args = append(args, limit, offset)
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, IssueSearchAST{}, err
+	}
+	defer rows.Close()
+
+	issues := make([]Issue, 0, limit)
+	issueIDs := make([]uuid.UUID, 0, limit)
+	for rows.Next() {
+		var issue Issue
+		if err := rows.Scan(&issue.ID, &issue.OrgID, &issue.ProjectID, &issue.ParentID, &issue.SprintID, &issue.ReporterID, &issue.AssigneeID, &issue.IssueType,
+			&issue.Title, &issue.Description, &issue.Status, &issue.Priority, &issue.CreatedAt, &issue.UpdatedAt); err != nil {
+			return nil, 0, IssueSearchAST{}, err
+		}
+		issues = append(issues, issue)
+		issueIDs = append(issueIDs, issue.ID)
+	}
+	labelsByIssue, err := r.ListLabelsByIssueIDs(ctx, orgID, issueIDs)
+	if err != nil {
+		return nil, 0, IssueSearchAST{}, err
+	}
+	for i := range issues {
+		issues[i].Labels = labelsByIssue[issues[i].ID]
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, IssueSearchAST{}, err
+	}
+	_ = r.RecordRecentQuery(ctx, orgID, actorID, rawQuery)
+	return issues, total, ast, nil
+}
+
+func (r *Repository) SaveQuery(ctx context.Context, orgID, userID uuid.UUID, name, query string) (SavedIssueQuery, error) {
+	now := time.Now().UTC()
+	saved := SavedIssueQuery{
+		ID:        uuid.New(),
+		OrgID:     orgID,
+		UserID:    userID,
+		Name:      strings.TrimSpace(name),
+		Query:     strings.TrimSpace(query),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if _, err := r.db.ExecContext(ctx, `
+INSERT INTO issue_saved_queries (id, org_id, user_id, name, query, created_at, updated_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7)
+ON CONFLICT (org_id, user_id, name)
+DO UPDATE SET query=EXCLUDED.query, updated_at=EXCLUDED.updated_at
+`, saved.ID, saved.OrgID, saved.UserID, saved.Name, saved.Query, saved.CreatedAt, saved.UpdatedAt); err != nil {
+		return SavedIssueQuery{}, err
+	}
+	row := r.db.QueryRowContext(ctx, `
+SELECT id, org_id, user_id, name, query, created_at, updated_at
+FROM issue_saved_queries
+WHERE org_id=$1 AND user_id=$2 AND name=$3
+`, orgID, userID, saved.Name)
+	if err := row.Scan(&saved.ID, &saved.OrgID, &saved.UserID, &saved.Name, &saved.Query, &saved.CreatedAt, &saved.UpdatedAt); err != nil {
+		return SavedIssueQuery{}, err
+	}
+	return saved, nil
+}
+
+func (r *Repository) ListSavedQueries(ctx context.Context, orgID, userID uuid.UUID) ([]SavedIssueQuery, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT id, org_id, user_id, name, query, created_at, updated_at
+FROM issue_saved_queries
+WHERE org_id=$1 AND user_id=$2
+ORDER BY updated_at DESC, created_at DESC
+`, orgID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []SavedIssueQuery{}
+	for rows.Next() {
+		var item SavedIssueQuery
+		if err := rows.Scan(&item.ID, &item.OrgID, &item.UserID, &item.Name, &item.Query, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (r *Repository) DeleteSavedQuery(ctx context.Context, orgID, userID, savedQueryID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `
+DELETE FROM issue_saved_queries
+WHERE id=$1 AND org_id=$2 AND user_id=$3
+`, savedQueryID, orgID, userID)
+	return err
+}
+
+func (r *Repository) RecordRecentQuery(ctx context.Context, orgID, userID uuid.UUID, query string) error {
+	trimmed := strings.TrimSpace(query)
+	if userID == uuid.Nil || trimmed == "" {
+		return nil
+	}
+	_, err := r.db.ExecContext(ctx, `
+INSERT INTO issue_recent_queries (org_id, user_id, query, last_used_at)
+VALUES ($1,$2,$3,NOW())
+ON CONFLICT (org_id, user_id, query)
+DO UPDATE SET last_used_at=EXCLUDED.last_used_at
+`, orgID, userID, trimmed)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, `
+DELETE FROM issue_recent_queries
+WHERE org_id=$1 AND user_id=$2
+AND query NOT IN (
+  SELECT query FROM issue_recent_queries
+  WHERE org_id=$1 AND user_id=$2
+  ORDER BY last_used_at DESC
+  LIMIT 20
+)
+`, orgID, userID)
+	return err
+}
+
+func (r *Repository) ListRecentQueries(ctx context.Context, orgID, userID uuid.UUID, limit int) ([]RecentIssueQuery, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	rows, err := r.db.QueryContext(ctx, `
+SELECT query, last_used_at
+FROM issue_recent_queries
+WHERE org_id=$1 AND user_id=$2
+ORDER BY last_used_at DESC
+LIMIT $3
+`, orgID, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []RecentIssueQuery{}
+	for rows.Next() {
+		var item RecentIssueQuery
+		if err := rows.Scan(&item.Query, &item.LastUsedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (r *Repository) SearchSuggestions(ctx context.Context, orgID, userID uuid.UUID) (IssueSearchSuggestions, error) {
+	s := IssueSearchSuggestions{
+		Fields:     []string{"status", "assignee", "priority", "label", "sprint", "type", "title", "project"},
+		Statuses:   []string{"todo", "in_progress", "done"},
+		Priorities: []string{"low", "medium", "high", "critical"},
+		Types:      []string{"task", "story", "bug", "epic"},
+		Labels:     []string{},
+		Assignees:  []IssueAssignee{},
+	}
+
+	labelRows, err := r.db.QueryContext(ctx, `
+SELECT DISTINCT label
+FROM issue_labels
+WHERE org_id=$1 AND label <> ''
+ORDER BY label ASC
+LIMIT 50
+`, orgID)
+	if err != nil {
+		return IssueSearchSuggestions{}, err
+	}
+	for labelRows.Next() {
+		var label string
+		if err := labelRows.Scan(&label); err != nil {
+			labelRows.Close()
+			return IssueSearchSuggestions{}, err
+		}
+		s.Labels = append(s.Labels, label)
+	}
+	if err := labelRows.Err(); err != nil {
+		labelRows.Close()
+		return IssueSearchSuggestions{}, err
+	}
+	labelRows.Close()
+
+	assigneeRows, err := r.db.QueryContext(ctx, `
+SELECT u.id, u.email, COALESCE(u.full_name, '')
+FROM users u
+JOIN memberships m ON m.org_id=u.org_id AND m.user_id=u.id
+WHERE u.org_id=$1
+ORDER BY u.email ASC
+LIMIT 50
+`, orgID)
+	if err != nil {
+		return IssueSearchSuggestions{}, err
+	}
+	for assigneeRows.Next() {
+		var user IssueAssignee
+		if err := assigneeRows.Scan(&user.ID, &user.Email, &user.FullName); err != nil {
+			assigneeRows.Close()
+			return IssueSearchSuggestions{}, err
+		}
+		s.Assignees = append(s.Assignees, user)
+	}
+	if err := assigneeRows.Err(); err != nil {
+		assigneeRows.Close()
+		return IssueSearchSuggestions{}, err
+	}
+	assigneeRows.Close()
+
+	saved, err := r.ListSavedQueries(ctx, orgID, userID)
+	if err != nil {
+		return IssueSearchSuggestions{}, err
+	}
+	recent, err := r.ListRecentQueries(ctx, orgID, userID, 20)
+	if err != nil {
+		return IssueSearchSuggestions{}, err
+	}
+	s.Saved = saved
+	s.Recent = recent
+	return s, nil
 }
 
 func (r *Repository) Update(ctx context.Context, orgID, issueID uuid.UUID, input UpdateIssueInput) (Issue, error) {
@@ -461,7 +712,12 @@ func (r *Repository) CreateComment(ctx context.Context, orgID, issueID, authorID
 	comment := IssueComment{ID: uuid.New(), OrgID: orgID, IssueID: issueID, AuthorID: authorID, Body: body, CreatedAt: time.Now().UTC()}
 	_, err := r.db.ExecContext(ctx, `INSERT INTO issue_comments (id, org_id, issue_id, author_id, body, created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
 		comment.ID, comment.OrgID, comment.IssueID, comment.AuthorID, comment.Body, comment.CreatedAt)
-	return comment, err
+	if err != nil {
+		return comment, err
+	}
+	_ = r.db.QueryRowContext(ctx, `SELECT COALESCE(email,''), COALESCE(full_name,'') FROM users WHERE id=$1 AND org_id=$2`, authorID, orgID).
+		Scan(&comment.AuthorEmail, &comment.AuthorName)
+	return comment, nil
 }
 
 func (r *Repository) ListComments(ctx context.Context, orgID, issueID uuid.UUID, page, limit int) ([]IssueComment, int, error) {
@@ -470,7 +726,13 @@ func (r *Repository) ListComments(ctx context.Context, orgID, issueID uuid.UUID,
 	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM issue_comments WHERE org_id=$1 AND issue_id=$2`, orgID, issueID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT id, org_id, issue_id, author_id, body, created_at FROM issue_comments WHERE org_id=$1 AND issue_id=$2 ORDER BY created_at ASC LIMIT $3 OFFSET $4`, orgID, issueID, limit, (page-1)*limit)
+	rows, err := r.db.QueryContext(ctx, `
+SELECT c.id, c.org_id, c.issue_id, c.author_id, COALESCE(u.email,''), COALESCE(u.full_name,''), c.body, c.created_at
+FROM issue_comments c
+LEFT JOIN users u ON u.id = c.author_id AND u.org_id = c.org_id
+WHERE c.org_id=$1 AND c.issue_id=$2
+ORDER BY c.created_at ASC
+LIMIT $3 OFFSET $4`, orgID, issueID, limit, (page-1)*limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -478,7 +740,7 @@ func (r *Repository) ListComments(ctx context.Context, orgID, issueID uuid.UUID,
 	result := []IssueComment{}
 	for rows.Next() {
 		var c IssueComment
-		if err := rows.Scan(&c.ID, &c.OrgID, &c.IssueID, &c.AuthorID, &c.Body, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.OrgID, &c.IssueID, &c.AuthorID, &c.AuthorEmail, &c.AuthorName, &c.Body, &c.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		result = append(result, c)
@@ -498,7 +760,13 @@ func (r *Repository) ListActivities(ctx context.Context, orgID, issueID uuid.UUI
 	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM issue_activities WHERE org_id=$1 AND issue_id=$2`, orgID, issueID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT id, org_id, issue_id, actor_id, action, field, from_value, to_value, created_at FROM issue_activities WHERE org_id=$1 AND issue_id=$2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`, orgID, issueID, limit, (page-1)*limit)
+	rows, err := r.db.QueryContext(ctx, `
+SELECT a.id, a.org_id, a.issue_id, a.actor_id, COALESCE(u.email,''), COALESCE(u.full_name,''), a.action, a.field, a.from_value, a.to_value, a.created_at
+FROM issue_activities a
+LEFT JOIN users u ON u.id = a.actor_id AND u.org_id = a.org_id
+WHERE a.org_id=$1 AND a.issue_id=$2
+ORDER BY a.created_at DESC
+LIMIT $3 OFFSET $4`, orgID, issueID, limit, (page-1)*limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -506,7 +774,7 @@ func (r *Repository) ListActivities(ctx context.Context, orgID, issueID uuid.UUI
 	result := []IssueActivity{}
 	for rows.Next() {
 		var a IssueActivity
-		if err := rows.Scan(&a.ID, &a.OrgID, &a.IssueID, &a.ActorID, &a.Action, &a.Field, &a.FromValue, &a.ToValue, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.OrgID, &a.IssueID, &a.ActorID, &a.ActorEmail, &a.ActorName, &a.Action, &a.Field, &a.FromValue, &a.ToValue, &a.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		result = append(result, a)

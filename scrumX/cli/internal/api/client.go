@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atharshah1/scrum/scrumX/cli/internal/config"
@@ -14,7 +17,8 @@ import (
 )
 
 type Client struct {
-	cfgStore *config.Store
+	cfgStore     *config.Store
+	autoSyncOnce sync.Once
 }
 
 type User struct {
@@ -32,31 +36,33 @@ type TokenPair struct {
 }
 
 type Issue struct {
-	ID          string   `json:"id"`
-	ProjectID   string   `json:"project_id"`
-	ParentID    *string  `json:"parent_id,omitempty"`
-	SprintID    *string  `json:"sprint_id,omitempty"`
-	AssigneeID  *string  `json:"assignee_id,omitempty"`
-	IssueType   string   `json:"issue_type"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Status      string   `json:"status"`
-	Priority    string   `json:"priority"`
-	Labels      []string `json:"labels"`
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	ParentID    *string   `json:"parent_id,omitempty"`
+	SprintID    *string   `json:"sprint_id,omitempty"`
+	AssigneeID  *string   `json:"assignee_id,omitempty"`
+	IssueType   string    `json:"issue_type"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Status      string    `json:"status"`
+	Priority    string    `json:"priority"`
+	Labels      []string  `json:"labels"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type IssueListFilter struct {
-	ProjectID  string
-	Status     string
-	AssigneeID string
-	SprintID   string
-	Label      string
-	IssueType  string
-	Query      string
-	SortBy     string
-	Order      string
-	Page       int
-	Limit      int
+	ProjectID    string
+	Status       string
+	AssigneeID   string
+	SprintID     string
+	Label        string
+	IssueType    string
+	Query        string
+	UpdatedSince *time.Time
+	SortBy       string
+	Order        string
+	Page         int
+	Limit        int
 }
 
 type CreateIssueInput struct {
@@ -72,15 +78,16 @@ type CreateIssueInput struct {
 }
 
 type UpdateIssueInput struct {
-	ParentID    *string   `json:"parent_id,omitempty"`
-	SprintID    *string   `json:"sprint_id,omitempty"`
-	AssigneeID  *string   `json:"assignee_id,omitempty"`
-	Title       *string   `json:"title,omitempty"`
-	Description *string   `json:"description,omitempty"`
-	Status      *string   `json:"status,omitempty"`
-	Priority    *string   `json:"priority,omitempty"`
-	IssueType   *string   `json:"issue_type,omitempty"`
-	Labels      *[]string `json:"labels,omitempty"`
+	ParentID    *string    `json:"parent_id,omitempty"`
+	SprintID    *string    `json:"sprint_id,omitempty"`
+	AssigneeID  *string    `json:"assignee_id,omitempty"`
+	Title       *string    `json:"title,omitempty"`
+	Description *string    `json:"description,omitempty"`
+	Status      *string    `json:"status,omitempty"`
+	Priority    *string    `json:"priority,omitempty"`
+	IssueType   *string    `json:"issue_type,omitempty"`
+	Labels      *[]string  `json:"labels,omitempty"`
+	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 }
 
 type WorkflowTransition struct {
@@ -131,6 +138,21 @@ type IssueComment struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type SavedIssueQuery struct {
+	ID        string    `json:"id"`
+	OrgID     string    `json:"org_id"`
+	UserID    string    `json:"user_id"`
+	Name      string    `json:"name"`
+	Query     string    `json:"query"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type RecentIssueQuery struct {
+	Query      string    `json:"query"`
+	LastUsedAt time.Time `json:"last_used_at"`
+}
+
 type envelope[T any] struct {
 	Success bool `json:"success"`
 	Data    T    `json:"data"`
@@ -154,7 +176,41 @@ type authRefreshRequest struct {
 }
 
 func NewClient(cfgStore *config.Store) *Client {
-	return &Client{cfgStore: cfgStore}
+	client := &Client{cfgStore: cfgStore}
+	client.startAutoSyncWorker()
+	return client
+}
+
+func (c *Client) startAutoSyncWorker() {
+	c.autoSyncOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(autoSyncInterval())
+			defer ticker.Stop()
+			for range ticker.C {
+				status, err := c.SyncStatus()
+				if err != nil || status.PendingOps == 0 {
+					continue
+				}
+				_ = c.SyncNow()
+			}
+		}()
+	})
+}
+
+func autoSyncInterval() time.Duration {
+	const (
+		defaultSeconds = 30
+		minSeconds     = 5
+	)
+	raw := strings.TrimSpace(os.Getenv("SCRUMX_AUTO_SYNC_INTERVAL_SECONDS"))
+	if raw == "" {
+		return time.Duration(defaultSeconds) * time.Second
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < minSeconds {
+		return time.Duration(defaultSeconds) * time.Second
+	}
+	return time.Duration(v) * time.Second
 }
 
 func (c *Client) Login(email, password string) (User, TokenPair, error) {
@@ -214,6 +270,12 @@ func (c *Client) CreateIssue(input CreateIssueInput) (Issue, error) {
 }
 
 func (c *Client) UpdateIssue(id string, input UpdateIssueInput) (Issue, error) {
+	if input.UpdatedAt == nil {
+		if current, err := c.GetIssue(strings.TrimSpace(id)); err == nil && !current.UpdatedAt.IsZero() {
+			ts := current.UpdatedAt.UTC()
+			input.UpdatedAt = &ts
+		}
+	}
 	body := map[string]any{}
 	if input.ParentID != nil {
 		body["parent_id"] = strings.TrimSpace(*input.ParentID)
@@ -241,6 +303,9 @@ func (c *Client) UpdateIssue(id string, input UpdateIssueInput) (Issue, error) {
 	}
 	if input.Labels != nil {
 		body["labels"] = cleanLabels(*input.Labels)
+	}
+	if input.UpdatedAt != nil {
+		body["updated_at"] = input.UpdatedAt.UTC()
 	}
 	var out envelope[Issue]
 	_, err := c.authedRequest(http.MethodPatch, "/issues/"+strings.TrimSpace(id), body, &out)
@@ -273,6 +338,9 @@ func (c *Client) ListIssues(filter IssueListFilter) ([]Issue, error) {
 	if v := strings.TrimSpace(filter.Query); v != "" {
 		query.Set("q", v)
 	}
+	if filter.UpdatedSince != nil && !filter.UpdatedSince.IsZero() {
+		query.Set("updated_since", filter.UpdatedSince.UTC().Format(time.RFC3339))
+	}
 	if v := strings.TrimSpace(filter.SortBy); v != "" {
 		query.Set("sort_by", strings.ToLower(v))
 	}
@@ -301,6 +369,55 @@ func (c *Client) ListIssues(filter IssueListFilter) ([]Issue, error) {
 	if err == nil && cacheKey != "|" {
 		c.cacheWrite("issues", cacheKey, out.Data)
 	}
+	return out.Data, err
+}
+
+func (c *Client) SearchIssues(queryText string, page, limit int) ([]Issue, error) {
+	query := url.Values{}
+	query.Set("q", strings.TrimSpace(queryText))
+	if page > 0 {
+		query.Set("page", fmt.Sprintf("%d", page))
+	}
+	if limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	path := "/issues/search?" + query.Encode()
+	var out envelope[[]Issue]
+	_, err := c.authedRequest(http.MethodGet, path, nil, &out)
+	if err == nil {
+		c.cacheWrite("issues", c.cacheScope()+"|"+path, out.Data)
+	}
+	return out.Data, err
+}
+
+func (c *Client) SaveIssueQuery(name, queryText string) (SavedIssueQuery, error) {
+	payload := map[string]string{
+		"name":  strings.TrimSpace(name),
+		"query": strings.TrimSpace(queryText),
+	}
+	var out envelope[SavedIssueQuery]
+	_, err := c.authedRequest(http.MethodPost, "/issues/queries/saved", payload, &out)
+	return out.Data, err
+}
+
+func (c *Client) ListSavedIssueQueries() ([]SavedIssueQuery, error) {
+	var out envelope[[]SavedIssueQuery]
+	_, err := c.authedRequest(http.MethodGet, "/issues/queries/saved", nil, &out)
+	return out.Data, err
+}
+
+func (c *Client) DeleteSavedIssueQuery(id string) error {
+	_, err := c.authedRequest(http.MethodDelete, "/issues/queries/saved/"+strings.TrimSpace(id), nil, nil)
+	return err
+}
+
+func (c *Client) ListRecentIssueQueries(limit int) ([]RecentIssueQuery, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	path := fmt.Sprintf("/issues/queries/recent?limit=%d", limit)
+	var out envelope[[]RecentIssueQuery]
+	_, err := c.authedRequest(http.MethodGet, path, nil, &out)
 	return out.Data, err
 }
 

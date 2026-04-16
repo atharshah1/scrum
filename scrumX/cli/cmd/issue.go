@@ -13,7 +13,7 @@ import (
 var issueCmd = &cobra.Command{
 	Use:     "issue",
 	Aliases: []string{"issues", "is"},
-	Short: "Issue management commands",
+	Short:   "Issue management commands",
 }
 
 var issueCreateCmd = &cobra.Command{
@@ -86,7 +86,7 @@ var issueCreateCmd = &cobra.Command{
 		if strings.TrimSpace(projectID) == "" {
 			return fmt.Errorf("--project-id is required (or set context current_project_id)")
 		}
-		issue, err := client.CreateIssue(api.CreateIssueInput{
+		issue, err := client.CreateIssueSmart(api.CreateIssueInput{
 			Title:       args[0],
 			ProjectID:   projectID,
 			Description: description,
@@ -133,7 +133,39 @@ var issueListCmd = &cobra.Command{
 		limit, _ := cmd.Flags().GetInt("limit")
 		filter.Page = page
 		filter.Limit = limit
-		issues, err := client.ListIssues(filter)
+		issues, err := client.ListIssuesSmart(filter)
+		if err != nil {
+			return err
+		}
+		if len(issues) == 0 {
+			fmt.Println("No issues found")
+			return nil
+		}
+		rows := make([][]string, 0, len(issues))
+		for _, it := range issues {
+			rows = append(rows, []string{it.ID, utils.StatusColor(it.Status), it.Priority, it.IssueType, it.Title})
+		}
+		utils.PrintTable([]string{"ID", "STATUS", "PRIORITY", "TYPE", "TITLE"}, rows)
+		return nil
+	},
+}
+
+var issueSearchCmd = &cobra.Command{
+	Use:   "search <query>",
+	Short: "Search issues with query language (AND/OR, field=value)",
+	Args:  cobra.ExactArgs(1),
+	Example: strings.TrimSpace(`
+  scrumx issue search "status=done AND assignee=me AND priority=high"
+  scrumx issue search "status=in_progress AND label=payments"
+`),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newClient()
+		if err != nil {
+			return err
+		}
+		page, _ := cmd.Flags().GetInt("page")
+		limit, _ := cmd.Flags().GetInt("limit")
+		issues, err := client.SearchIssuesSmart(args[0], page, limit)
 		if err != nil {
 			return err
 		}
@@ -159,7 +191,7 @@ var issueViewCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		issue, err := client.GetIssue(args[0])
+		issue, err := client.GetIssueSmart(args[0])
 		if err != nil {
 			return err
 		}
@@ -247,7 +279,7 @@ var issueUpdateCmd = &cobra.Command{
 		if setCount == 0 {
 			return fmt.Errorf("no changes provided")
 		}
-		issue, err := client.UpdateIssue(id, input)
+		issue, err := client.UpdateIssueSmart(id, input)
 		if err != nil {
 			return err
 		}
@@ -257,16 +289,16 @@ var issueUpdateCmd = &cobra.Command{
 }
 
 var issueAssignCmd = &cobra.Command{
-	Use:   "assign <issue-id> <user-id>",
-	Short: "Assign an issue",
-	Args:  cobra.ExactArgs(2),
+	Use:     "assign <issue-id> <user-id>",
+	Short:   "Assign an issue",
+	Args:    cobra.ExactArgs(2),
 	Example: "  scrumx issue assign <issue-id> <user-id>",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
 		if err != nil {
 			return err
 		}
-		issue, err := client.UpdateIssue(args[0], api.UpdateIssueInput{AssigneeID: &args[1]})
+		issue, err := client.UpdateIssueSmart(args[0], api.UpdateIssueInput{AssigneeID: &args[1]})
 		if err != nil {
 			return err
 		}
@@ -288,7 +320,7 @@ var issueMoveCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		issue, err := client.GetIssue(args[0])
+		issue, err := client.GetIssueSmart(args[0])
 		if err != nil {
 			return err
 		}
@@ -312,7 +344,7 @@ var issueMoveCmd = &cobra.Command{
 		if !contains(allowed, target) {
 			return fmt.Errorf("invalid transition to %q (allowed: %s)", target, strings.Join(allowed, ", "))
 		}
-		updated, err := client.UpdateIssue(issue.ID, api.UpdateIssueInput{Status: &target})
+		updated, err := client.UpdateIssueSmart(issue.ID, api.UpdateIssueInput{Status: &target})
 		if err != nil {
 			return err
 		}
@@ -321,9 +353,156 @@ var issueMoveCmd = &cobra.Command{
 	},
 }
 
+var issueDeleteCmd = &cobra.Command{
+	Use:   "delete <issue-id>",
+	Short: "Delete an issue (queues offline when disconnected)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newClient()
+		if err != nil {
+			return err
+		}
+		if err := client.DeleteIssueSmart(args[0]); err != nil {
+			return err
+		}
+		fmt.Println(utils.SuccessText(fmt.Sprintf("Deleted issue %s (or queued for sync)", args[0])))
+		return nil
+	},
+}
+
 var issueLabelCmd = &cobra.Command{Use: "label", Short: "Manage issue labels"}
 var issueBulkCmd = &cobra.Command{Use: "bulk", Aliases: []string{"b"}, Short: "Bulk issue operations"}
 var issueCommentCmd = &cobra.Command{Use: "comment", Aliases: []string{"comments"}, Short: "Manage issue comments"}
+var issueFilterCmd = &cobra.Command{Use: "filter", Aliases: []string{"filters"}, Short: "Manage saved and recent issue search filters"}
+
+var issueFilterSaveCmd = &cobra.Command{
+	Use:   "save <name> <query>",
+	Short: "Save an issue search query",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newClient()
+		if err != nil {
+			return err
+		}
+		saved, err := client.SaveIssueQuery(args[0], args[1])
+		if err != nil {
+			return err
+		}
+		fmt.Println(utils.SuccessText(fmt.Sprintf("Saved query %q", saved.Name)))
+		return nil
+	},
+}
+
+var issueFilterListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List saved issue search queries",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newClient()
+		if err != nil {
+			return err
+		}
+		items, err := client.ListSavedIssueQueries()
+		if err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			fmt.Println("No saved filters")
+			return nil
+		}
+		rows := make([][]string, 0, len(items))
+		for _, item := range items {
+			rows = append(rows, []string{item.ID, item.Name, item.Query, item.UpdatedAt.Local().Format(time.RFC3339)})
+		}
+		utils.PrintTable([]string{"ID", "NAME", "QUERY", "UPDATED"}, rows)
+		return nil
+	},
+}
+
+var issueFilterRunCmd = &cobra.Command{
+	Use:   "run <name-or-id>",
+	Short: "Run a saved issue search query by name or id",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newClient()
+		if err != nil {
+			return err
+		}
+		saved, err := client.ListSavedIssueQueries()
+		if err != nil {
+			return err
+		}
+		target := strings.TrimSpace(args[0])
+		var selected *api.SavedIssueQuery
+		for i := range saved {
+			if saved[i].ID == target || strings.EqualFold(saved[i].Name, target) {
+				selected = &saved[i]
+				break
+			}
+		}
+		if selected == nil {
+			return fmt.Errorf("saved filter not found: %s", target)
+		}
+		page, _ := cmd.Flags().GetInt("page")
+		limit, _ := cmd.Flags().GetInt("limit")
+		issues, err := client.SearchIssuesSmart(selected.Query, page, limit)
+		if err != nil {
+			return err
+		}
+		if len(issues) == 0 {
+			fmt.Println("No issues found")
+			return nil
+		}
+		rows := make([][]string, 0, len(issues))
+		for _, it := range issues {
+			rows = append(rows, []string{it.ID, utils.StatusColor(it.Status), it.Priority, it.IssueType, it.Title})
+		}
+		utils.PrintTable([]string{"ID", "STATUS", "PRIORITY", "TYPE", "TITLE"}, rows)
+		return nil
+	},
+}
+
+var issueFilterDeleteCmd = &cobra.Command{
+	Use:   "delete <id>",
+	Short: "Delete a saved issue search query by id",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newClient()
+		if err != nil {
+			return err
+		}
+		if err := client.DeleteSavedIssueQuery(args[0]); err != nil {
+			return err
+		}
+		fmt.Println(utils.SuccessText("Saved filter deleted"))
+		return nil
+	},
+}
+
+var issueFilterRecentCmd = &cobra.Command{
+	Use:   "recent",
+	Short: "List recent issue search queries",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newClient()
+		if err != nil {
+			return err
+		}
+		limit, _ := cmd.Flags().GetInt("limit")
+		items, err := client.ListRecentIssueQueries(limit)
+		if err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			fmt.Println("No recent filters")
+			return nil
+		}
+		rows := make([][]string, 0, len(items))
+		for _, item := range items {
+			rows = append(rows, []string{item.Query, item.LastUsedAt.Local().Format(time.RFC3339)})
+		}
+		utils.PrintTable([]string{"QUERY", "LAST_USED"}, rows)
+		return nil
+	},
+}
 
 var issueLabelAddCmd = &cobra.Command{
 	Use:   "add <issue-id> <label>",
@@ -377,7 +556,7 @@ var issueBulkAssignCmd = &cobra.Command{
 		}
 		failed := 0
 		for _, id := range ids {
-			if _, err := client.UpdateIssue(id, api.UpdateIssueInput{AssigneeID: &args[0]}); err != nil {
+			if _, err := client.UpdateIssueSmart(id, api.UpdateIssueInput{AssigneeID: &args[0]}); err != nil {
 				failed++
 				fmt.Printf("✗ %s: %v\n", id, err)
 				continue
@@ -411,7 +590,7 @@ var issueBulkMoveCmd = &cobra.Command{
 		status := strings.ToLower(strings.TrimSpace(args[0]))
 		failed := 0
 		for _, id := range ids {
-			if _, err := client.UpdateIssue(id, api.UpdateIssueInput{Status: &status}); err != nil {
+			if _, err := client.UpdateIssueSmart(id, api.UpdateIssueInput{Status: &status}); err != nil {
 				failed++
 				fmt.Printf("✗ %s: %v\n", id, err)
 				continue
@@ -475,7 +654,7 @@ var issueBulkUpdateCmd = &cobra.Command{
 		}
 		failed := 0
 		for _, id := range ids {
-			if _, err := client.UpdateIssue(id, input); err != nil {
+			if _, err := client.UpdateIssueSmart(id, input); err != nil {
 				failed++
 				fmt.Printf("✗ %s: %v\n", id, err)
 				continue
@@ -548,10 +727,11 @@ var issueCommentListCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(issueCmd)
-	issueCmd.AddCommand(issueCreateCmd, issueListCmd, issueViewCmd, issueUpdateCmd, issueAssignCmd, issueMoveCmd, issueLabelCmd, issueBulkCmd, issueCommentCmd)
+	issueCmd.AddCommand(issueCreateCmd, issueListCmd, issueSearchCmd, issueViewCmd, issueUpdateCmd, issueAssignCmd, issueMoveCmd, issueDeleteCmd, issueLabelCmd, issueBulkCmd, issueCommentCmd, issueFilterCmd)
 	issueLabelCmd.AddCommand(issueLabelAddCmd, issueLabelRemoveCmd)
 	issueBulkCmd.AddCommand(issueBulkAssignCmd, issueBulkMoveCmd, issueBulkUpdateCmd)
 	issueCommentCmd.AddCommand(issueCommentAddCmd, issueCommentListCmd)
+	issueFilterCmd.AddCommand(issueFilterSaveCmd, issueFilterListCmd, issueFilterRunCmd, issueFilterDeleteCmd, issueFilterRecentCmd)
 
 	issueCreateCmd.Flags().String("project-id", "", "Project UUID (defaults to active context)")
 	issueCreateCmd.Flags().String("description", "", "Issue description")
@@ -584,6 +764,11 @@ func init() {
 	issueListCmd.Flags().String("order", "", "Sort order (asc|desc)")
 	issueListCmd.Flags().Int("page", 1, "Page number")
 	issueListCmd.Flags().Int("limit", 50, "Page size")
+	issueSearchCmd.Flags().Int("page", 1, "Page number")
+	issueSearchCmd.Flags().Int("limit", 50, "Page size")
+	issueFilterRunCmd.Flags().Int("page", 1, "Page number")
+	issueFilterRunCmd.Flags().Int("limit", 50, "Page size")
+	issueFilterRecentCmd.Flags().Int("limit", 20, "Max recent query count")
 
 	issueBulkAssignCmd.Flags().String("issues", "", "Comma-separated issue IDs")
 	_ = issueBulkAssignCmd.MarkFlagRequired("issues")

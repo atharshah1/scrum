@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atharshah1/scrum/scrumX/tui/internal/config"
@@ -14,19 +17,22 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-type Client struct{}
+type Client struct {
+	autoSyncOnce sync.Once
+}
 
 type Issue struct {
-	ID         string   `json:"id"`
-	ProjectID  string   `json:"project_id"`
-	Title      string   `json:"title"`
-	Description string  `json:"description"`
-	Status     string   `json:"status"`
-	Priority   string   `json:"priority"`
-	IssueType  string   `json:"issue_type"`
-	Labels     []string `json:"labels"`
-	AssigneeID *string  `json:"assignee_id,omitempty"`
-	SprintID   *string  `json:"sprint_id,omitempty"`
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Status      string    `json:"status"`
+	Priority    string    `json:"priority"`
+	IssueType   string    `json:"issue_type"`
+	Labels      []string  `json:"labels"`
+	AssigneeID  *string   `json:"assignee_id,omitempty"`
+	SprintID    *string   `json:"sprint_id,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type BoardIssue struct {
@@ -72,14 +78,15 @@ type Event struct {
 }
 
 type UpdateIssueInput struct {
-	Title       *string   `json:"title,omitempty"`
-	Description *string   `json:"description,omitempty"`
-	Status      *string   `json:"status,omitempty"`
-	Priority    *string   `json:"priority,omitempty"`
-	IssueType   *string   `json:"issue_type,omitempty"`
-	AssigneeID  *string   `json:"assignee_id,omitempty"`
-	SprintID    *string   `json:"sprint_id,omitempty"`
-	Labels      *[]string `json:"labels,omitempty"`
+	Title       *string    `json:"title,omitempty"`
+	Description *string    `json:"description,omitempty"`
+	Status      *string    `json:"status,omitempty"`
+	Priority    *string    `json:"priority,omitempty"`
+	IssueType   *string    `json:"issue_type,omitempty"`
+	AssigneeID  *string    `json:"assignee_id,omitempty"`
+	SprintID    *string    `json:"sprint_id,omitempty"`
+	Labels      *[]string  `json:"labels,omitempty"`
+	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 }
 
 type envelope[T any] struct {
@@ -90,9 +97,57 @@ type envelope[T any] struct {
 	} `json:"error"`
 }
 
-func NewClient() *Client { return &Client{} }
+func NewClient() *Client {
+	client := &Client{}
+	client.startAutoSyncWorker()
+	return client
+}
+
+func (c *Client) startAutoSyncWorker() {
+	c.autoSyncOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(autoSyncInterval())
+			defer ticker.Stop()
+			for range ticker.C {
+				status, err := c.SyncStatus()
+				if err != nil || status.PendingOps == 0 {
+					continue
+				}
+				_ = c.SyncNow()
+			}
+		}()
+	})
+}
+
+func autoSyncInterval() time.Duration {
+	const (
+		defaultSeconds = 30
+		minSeconds     = 5
+	)
+	raw := strings.TrimSpace(os.Getenv("SCRUMX_AUTO_SYNC_INTERVAL_SECONDS"))
+	if raw == "" {
+		return time.Duration(defaultSeconds) * time.Second
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < minSeconds {
+		return time.Duration(defaultSeconds) * time.Second
+	}
+	return time.Duration(v) * time.Second
+}
 
 func (c *Client) ListIssues() ([]Issue, error) {
+	return c.listIssuesWithParams(nil, 0, 0)
+}
+
+func (c *Client) ListIssuesSince(updatedSince time.Time, page, limit int) ([]Issue, error) {
+	if updatedSince.IsZero() {
+		return c.listIssuesWithParams(nil, page, limit)
+	}
+	ts := updatedSince.UTC()
+	return c.listIssuesWithParams(&ts, page, limit)
+}
+
+func (c *Client) listIssuesWithParams(updatedSince *time.Time, page, limit int) ([]Issue, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
@@ -100,8 +155,42 @@ func (c *Client) ListIssues() ([]Issue, error) {
 	if cfg.AccessToken == "" {
 		return nil, fmt.Errorf("not logged in: run scrumx auth login first")
 	}
+	path := "/issues"
+	query := url.Values{}
+	if updatedSince != nil && !updatedSince.IsZero() {
+		query.Set("updated_since", updatedSince.UTC().Format(time.RFC3339))
+	}
+	if page > 0 {
+		query.Set("page", fmt.Sprintf("%d", page))
+	}
+	if limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
 	var out envelope[[]Issue]
-	resp, err := c.request(cfg, http.MethodGet, "/issues", nil, &out)
+	resp, err := c.request(cfg, http.MethodGet, path, nil, &out)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		return nil, fmt.Errorf("request failed (%d): %s", resp.StatusCode(), parseError(out.Error.Message, resp.StatusCode()))
+	}
+	return out.Data, nil
+}
+
+func (c *Client) SearchIssues(queryText string) ([]Issue, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	if cfg.AccessToken == "" {
+		return nil, fmt.Errorf("not logged in: run scrumx auth login first")
+	}
+	path := "/issues/search?q=" + url.QueryEscape(strings.TrimSpace(queryText))
+	var out envelope[[]Issue]
+	resp, err := c.request(cfg, http.MethodGet, path, nil, &out)
 	if err != nil {
 		return nil, err
 	}
@@ -171,20 +260,8 @@ func (c *Client) ListAllowedTransitions(projectID, currentStatus string) ([]stri
 }
 
 func (c *Client) UpdateIssueStatus(issueID, status string) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-	body := map[string]string{"status": strings.ToLower(strings.TrimSpace(status))}
-	var out envelope[map[string]any]
-	resp, err := c.request(cfg, http.MethodPatch, "/issues/"+strings.TrimSpace(issueID), body, &out)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
-		return fmt.Errorf("request failed (%d): %s", resp.StatusCode(), parseError(out.Error.Message, resp.StatusCode()))
-	}
-	return nil
+	normalized := strings.ToLower(strings.TrimSpace(status))
+	return c.UpdateIssue(issueID, UpdateIssueInput{Status: &normalized})
 }
 
 func (c *Client) GetIssue(issueID string) (Issue, error) {
@@ -211,6 +288,12 @@ func (c *Client) UpdateIssue(issueID string, input UpdateIssueInput) error {
 	if err != nil {
 		return err
 	}
+	if input.UpdatedAt == nil {
+		if current, getErr := c.GetIssue(strings.TrimSpace(issueID)); getErr == nil && !current.UpdatedAt.IsZero() {
+			ts := current.UpdatedAt.UTC()
+			input.UpdatedAt = &ts
+		}
+	}
 	body := map[string]any{}
 	if input.Title != nil {
 		body["title"] = strings.TrimSpace(*input.Title)
@@ -235,6 +318,9 @@ func (c *Client) UpdateIssue(issueID string, input UpdateIssueInput) error {
 	}
 	if input.Labels != nil {
 		body["labels"] = *input.Labels
+	}
+	if input.UpdatedAt != nil {
+		body["updated_at"] = input.UpdatedAt.UTC()
 	}
 	var out envelope[map[string]any]
 	resp, err := c.request(cfg, http.MethodPatch, "/issues/"+strings.TrimSpace(issueID), body, &out)
