@@ -70,6 +70,8 @@ type Model struct {
 	searchQuery       string
 	syncMode          string
 	syncPending       int
+	syncConflicts     int
+	syncDropped       int
 	lastSyncedAt      time.Time
 }
 
@@ -362,6 +364,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.syncMode = msg.status.Mode
 		m.syncPending = msg.status.PendingOps
+		m.syncConflicts = msg.status.PendingConflicts
+		m.syncDropped = msg.status.DroppedOps
 		m.lastSyncedAt = msg.status.LastSyncedAt
 
 	case transitionsLoadedMsg:
@@ -449,7 +453,7 @@ func (m Model) View() string {
 	if strings.TrimSpace(m.syncMode) == "" {
 		m.syncMode = "online"
 	}
-	b.WriteString(fmt.Sprintf("Mode: %s | Pending sync ops: %d | Last sync: %s\n", m.syncMode, m.syncPending, lastSyncText))
+	b.WriteString(fmt.Sprintf("Mode: %s | Pending sync ops: %d | Conflicts: %d | Dropped ops: %d | Last sync: %s\n", m.syncMode, m.syncPending, m.syncConflicts, m.syncDropped, lastSyncText))
 	if strings.TrimSpace(m.searchQuery) != "" {
 		b.WriteString(fmt.Sprintf("Active filter: %s\n", m.searchQuery))
 	}

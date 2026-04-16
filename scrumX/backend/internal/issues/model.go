@@ -54,19 +54,19 @@ type UpdateIssueInput struct {
 }
 
 type ListIssuesFilter struct {
-	ProjectID   uuid.UUID
-	Status      string
-	AssigneeID  uuid.UUID
-	SprintID    uuid.UUID
-	Label       string
-	IssueType   string
-	ParentID    uuid.UUID
+	ProjectID    uuid.UUID
+	Status       string
+	AssigneeID   uuid.UUID
+	SprintID     uuid.UUID
+	Label        string
+	IssueType    string
+	ParentID     uuid.UUID
 	UpdatedSince *time.Time
-	SearchQuery string
-	SortBy      string
-	Order       string
-	Page        int
-	Limit       int
+	SearchQuery  string
+	SortBy       string
+	Order        string
+	Page         int
+	Limit        int
 }
 
 type SavedIssueQuery struct {
@@ -102,24 +102,28 @@ type IssueAssignee struct {
 }
 
 type IssueComment struct {
-	ID        uuid.UUID `json:"id"`
-	OrgID     uuid.UUID `json:"org_id"`
-	IssueID   uuid.UUID `json:"issue_id"`
-	AuthorID  uuid.UUID `json:"author_id"`
-	Body      string    `json:"body"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          uuid.UUID `json:"id"`
+	OrgID       uuid.UUID `json:"org_id"`
+	IssueID     uuid.UUID `json:"issue_id"`
+	AuthorID    uuid.UUID `json:"author_id"`
+	AuthorEmail string    `json:"author_email,omitempty"`
+	AuthorName  string    `json:"author_name,omitempty"`
+	Body        string    `json:"body"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type IssueActivity struct {
-	ID        uuid.UUID `json:"id"`
-	OrgID     uuid.UUID `json:"org_id"`
-	IssueID   uuid.UUID `json:"issue_id"`
-	ActorID   uuid.UUID `json:"actor_id"`
-	Action    string    `json:"action"`
-	Field     string    `json:"field,omitempty"`
-	FromValue string    `json:"from_value,omitempty"`
-	ToValue   string    `json:"to_value,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         uuid.UUID `json:"id"`
+	OrgID      uuid.UUID `json:"org_id"`
+	IssueID    uuid.UUID `json:"issue_id"`
+	ActorID    uuid.UUID `json:"actor_id"`
+	ActorEmail string    `json:"actor_email,omitempty"`
+	ActorName  string    `json:"actor_name,omitempty"`
+	Action     string    `json:"action"`
+	Field      string    `json:"field,omitempty"`
+	FromValue  string    `json:"from_value,omitempty"`
+	ToValue    string    `json:"to_value,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type WorkflowTransitionRule struct {

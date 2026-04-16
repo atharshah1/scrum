@@ -25,6 +25,7 @@ export function IssueComments({ issueId, comments }: { issueId: string; comments
       const optimistic: IssueComment = {
         id: `tmp-${Date.now()}`,
         issue_id: issueId,
+        author_name: 'You',
         body: form.values.body,
         created_at: new Date().toISOString()
       };
@@ -61,7 +62,9 @@ export function IssueComments({ issueId, comments }: { issueId: string; comments
       </div>
       {comments.map((comment) => (
         <div key={comment.id} className="rounded-md border p-3 text-sm">
-          <div className="mb-1 text-xs text-muted-foreground">{new Date(comment.created_at).toLocaleString()}</div>
+          <div className="mb-1 text-xs text-muted-foreground">
+            {(comment.author_name || comment.author_email || 'Unknown user')} • {new Date(comment.created_at).toLocaleString()}
+          </div>
           {comment.body}
         </div>
       ))}

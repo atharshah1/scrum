@@ -49,6 +49,8 @@ export type IssueComment = {
   id: string;
   issue_id: string;
   author_id?: string;
+  author_email?: string;
+  author_name?: string;
   body: string;
   created_at: string;
 };

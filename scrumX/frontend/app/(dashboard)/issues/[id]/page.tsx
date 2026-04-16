@@ -69,7 +69,7 @@ export default function IssueDetailPage() {
     mutationFn: async (payload: Record<string, unknown>) =>
       apiRequest<Issue>(`/issues/${issueId}`, {
         method: 'PATCH',
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ ...payload, updated_at: issue?.updated_at })
       }),
     onMutate: async (payload) => {
       await queryClient.cancelQueries({ queryKey: qk.issue(issueId), exact: true });
@@ -83,11 +83,16 @@ export default function IssueDetailPage() {
       if (context?.previousIssue) {
         queryClient.setQueryData(qk.issue(issueId), context.previousIssue);
       }
+      const message = error instanceof Error ? error.message : 'Changes were reverted.';
+      const isConflict = /409|conflict|optimistic|updated_at/i.test(message);
       toast({
-        title: 'Update failed',
-        description: error instanceof Error ? error.message : 'Changes were reverted.',
+        title: isConflict ? 'Update conflict detected' : 'Update failed',
+        description: isConflict ? 'This issue changed elsewhere. Reloaded latest values; please review and retry.' : message,
         variant: 'error'
       });
+      if (isConflict) {
+        queryClient.invalidateQueries({ queryKey: qk.issue(issueId), exact: true });
+      }
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: qk.issue(issueId), exact: true });
@@ -100,7 +105,7 @@ export default function IssueDetailPage() {
     mutationFn: async (status: string) =>
       apiRequest<Issue>(`/issues/${issueId}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status })
+        body: JSON.stringify({ status, updated_at: issue?.updated_at })
       }),
     onMutate: async (status) => {
       await queryClient.cancelQueries({ queryKey: qk.issue(issueId), exact: true });
@@ -127,11 +132,16 @@ export default function IssueDetailPage() {
       if (context?.previousIssue) {
         queryClient.setQueryData(qk.issue(issueId), context.previousIssue);
       }
+      const message = error instanceof Error ? error.message : 'Issue transition was reverted.';
+      const isConflict = /409|conflict|optimistic|updated_at/i.test(message);
       toast({
-        title: 'Transition failed',
-        description: error instanceof Error ? error.message : 'Issue transition was reverted.',
+        title: isConflict ? 'Transition conflict detected' : 'Transition failed',
+        description: isConflict ? 'Issue changed elsewhere. Reloaded latest values; please choose transition again.' : message,
         variant: 'error'
       });
+      if (isConflict) {
+        queryClient.invalidateQueries({ queryKey: qk.issue(issueId), exact: true });
+      }
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: qk.issue(issueId), exact: true });

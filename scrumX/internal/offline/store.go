@@ -62,6 +62,28 @@ type Operation struct {
 	CreatedAt     time.Time       `json:"created_at"`
 }
 
+type ConflictField struct {
+	Field       string `json:"field"`
+	LocalValue  string `json:"local_value,omitempty"`
+	ServerValue string `json:"server_value,omitempty"`
+}
+
+type ConflictRecord struct {
+	ID               string          `json:"id"`
+	Entity           string          `json:"entity"`
+	TargetID         string          `json:"target_id"`
+	OperationID      string          `json:"operation_id,omitempty"`
+	ActorID          string          `json:"actor_id,omitempty"`
+	ActorDisplayName string          `json:"actor_display_name,omitempty"`
+	LocalSnapshot    json.RawMessage `json:"local_snapshot,omitempty"`
+	ServerSnapshot   json.RawMessage `json:"server_snapshot,omitempty"`
+	Fields           []ConflictField `json:"fields,omitempty"`
+	Resolved         bool            `json:"resolved"`
+	Resolution       string          `json:"resolution,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
+	ResolvedAt       time.Time       `json:"resolved_at,omitempty"`
+}
+
 type SyncEntityMeta struct {
 	LastSyncedAt time.Time `json:"last_synced_at,omitempty"`
 	LastVersion  time.Time `json:"last_version,omitempty"`
@@ -75,6 +97,7 @@ type State struct {
 	Users             map[string]User           `json:"users"`
 	PendingOperations []Operation               `json:"pending_operations"`
 	DroppedOperations int                       `json:"dropped_operations,omitempty"`
+	Conflicts         []ConflictRecord          `json:"conflicts,omitempty"`
 	IDAliases         map[string]string         `json:"id_aliases,omitempty"`
 	IssueQueryCache   map[string][]string       `json:"issue_query_cache,omitempty"`
 	EntitySync        map[string]SyncEntityMeta `json:"entity_sync,omitempty"`
@@ -178,6 +201,9 @@ func normalizeState(in State) State {
 	if in.IDAliases == nil {
 		in.IDAliases = map[string]string{}
 	}
+	if in.Conflicts == nil {
+		in.Conflicts = []ConflictRecord{}
+	}
 	if in.IssueQueryCache == nil {
 		in.IssueQueryCache = map[string][]string{}
 	}
@@ -185,6 +211,35 @@ func normalizeState(in State) State {
 		in.EntitySync = map[string]SyncEntityMeta{}
 	}
 	return in
+}
+
+func UpsertConflict(state *State, conflict ConflictRecord) {
+	if state == nil {
+		return
+	}
+	conflict.TargetID = strings.TrimSpace(conflict.TargetID)
+	conflict.Entity = strings.TrimSpace(conflict.Entity)
+	if conflict.ID == "" {
+		conflict.ID = fmt.Sprintf("conflict-%d", time.Now().UnixNano())
+	}
+	if conflict.CreatedAt.IsZero() {
+		conflict.CreatedAt = time.Now().UTC()
+	}
+	if state.Conflicts == nil {
+		state.Conflicts = []ConflictRecord{}
+	}
+	for i := range state.Conflicts {
+		existing := state.Conflicts[i]
+		if existing.Resolved {
+			continue
+		}
+		if existing.Entity == conflict.Entity && existing.TargetID == conflict.TargetID {
+			conflict.ID = existing.ID
+			state.Conflicts[i] = conflict
+			return
+		}
+	}
+	state.Conflicts = append(state.Conflicts, conflict)
 }
 
 func Backoff(attempt int) time.Duration {

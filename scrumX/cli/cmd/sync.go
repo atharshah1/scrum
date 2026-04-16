@@ -45,7 +45,14 @@ var syncStatusCmd = &cobra.Command{
 		if !status.LastSyncedAt.IsZero() {
 			last = status.LastSyncedAt.Local().Format(time.RFC3339)
 		}
-		fmt.Printf("Mode: %s\nPending operations: %d\nLast synced at: %s\n", status.Mode, status.PendingOps, last)
+		fmt.Printf(
+			"Mode: %s\nPending operations: %d\nPending conflicts: %d\nDropped operations: %d\nLast synced at: %s\n",
+			status.Mode,
+			status.PendingOps,
+			status.PendingConflicts,
+			status.DroppedOps,
+			last,
+		)
 		return nil
 	},
 }

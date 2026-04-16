@@ -712,7 +712,12 @@ func (r *Repository) CreateComment(ctx context.Context, orgID, issueID, authorID
 	comment := IssueComment{ID: uuid.New(), OrgID: orgID, IssueID: issueID, AuthorID: authorID, Body: body, CreatedAt: time.Now().UTC()}
 	_, err := r.db.ExecContext(ctx, `INSERT INTO issue_comments (id, org_id, issue_id, author_id, body, created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
 		comment.ID, comment.OrgID, comment.IssueID, comment.AuthorID, comment.Body, comment.CreatedAt)
-	return comment, err
+	if err != nil {
+		return comment, err
+	}
+	_ = r.db.QueryRowContext(ctx, `SELECT COALESCE(email,''), COALESCE(full_name,'') FROM users WHERE id=$1 AND org_id=$2`, authorID, orgID).
+		Scan(&comment.AuthorEmail, &comment.AuthorName)
+	return comment, nil
 }
 
 func (r *Repository) ListComments(ctx context.Context, orgID, issueID uuid.UUID, page, limit int) ([]IssueComment, int, error) {
@@ -721,7 +726,13 @@ func (r *Repository) ListComments(ctx context.Context, orgID, issueID uuid.UUID,
 	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM issue_comments WHERE org_id=$1 AND issue_id=$2`, orgID, issueID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT id, org_id, issue_id, author_id, body, created_at FROM issue_comments WHERE org_id=$1 AND issue_id=$2 ORDER BY created_at ASC LIMIT $3 OFFSET $4`, orgID, issueID, limit, (page-1)*limit)
+	rows, err := r.db.QueryContext(ctx, `
+SELECT c.id, c.org_id, c.issue_id, c.author_id, COALESCE(u.email,''), COALESCE(u.full_name,''), c.body, c.created_at
+FROM issue_comments c
+LEFT JOIN users u ON u.id = c.author_id AND u.org_id = c.org_id
+WHERE c.org_id=$1 AND c.issue_id=$2
+ORDER BY c.created_at ASC
+LIMIT $3 OFFSET $4`, orgID, issueID, limit, (page-1)*limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -729,7 +740,7 @@ func (r *Repository) ListComments(ctx context.Context, orgID, issueID uuid.UUID,
 	result := []IssueComment{}
 	for rows.Next() {
 		var c IssueComment
-		if err := rows.Scan(&c.ID, &c.OrgID, &c.IssueID, &c.AuthorID, &c.Body, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.OrgID, &c.IssueID, &c.AuthorID, &c.AuthorEmail, &c.AuthorName, &c.Body, &c.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		result = append(result, c)
@@ -749,7 +760,13 @@ func (r *Repository) ListActivities(ctx context.Context, orgID, issueID uuid.UUI
 	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM issue_activities WHERE org_id=$1 AND issue_id=$2`, orgID, issueID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT id, org_id, issue_id, actor_id, action, field, from_value, to_value, created_at FROM issue_activities WHERE org_id=$1 AND issue_id=$2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`, orgID, issueID, limit, (page-1)*limit)
+	rows, err := r.db.QueryContext(ctx, `
+SELECT a.id, a.org_id, a.issue_id, a.actor_id, COALESCE(u.email,''), COALESCE(u.full_name,''), a.action, a.field, a.from_value, a.to_value, a.created_at
+FROM issue_activities a
+LEFT JOIN users u ON u.id = a.actor_id AND u.org_id = a.org_id
+WHERE a.org_id=$1 AND a.issue_id=$2
+ORDER BY a.created_at DESC
+LIMIT $3 OFFSET $4`, orgID, issueID, limit, (page-1)*limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -757,7 +774,7 @@ func (r *Repository) ListActivities(ctx context.Context, orgID, issueID uuid.UUI
 	result := []IssueActivity{}
 	for rows.Next() {
 		var a IssueActivity
-		if err := rows.Scan(&a.ID, &a.OrgID, &a.IssueID, &a.ActorID, &a.Action, &a.Field, &a.FromValue, &a.ToValue, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.OrgID, &a.IssueID, &a.ActorID, &a.ActorEmail, &a.ActorName, &a.Action, &a.Field, &a.FromValue, &a.ToValue, &a.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		result = append(result, a)

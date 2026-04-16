@@ -14,9 +14,11 @@ import (
 )
 
 type SyncStatus struct {
-	Mode         string
-	LastSyncedAt time.Time
-	PendingOps   int
+	Mode             string
+	LastSyncedAt     time.Time
+	PendingOps       int
+	PendingConflicts int
+	DroppedOps       int
 }
 
 const issueProjectSyncKeyPrefix = "issues_by_project:"
@@ -34,7 +36,13 @@ func (c *Client) SyncStatus() (SyncStatus, error) {
 	if err != nil {
 		return SyncStatus{}, err
 	}
-	return SyncStatus{Mode: state.Mode, LastSyncedAt: state.LastSyncedAt, PendingOps: len(state.PendingOperations)}, nil
+	return SyncStatus{
+		Mode:             state.Mode,
+		LastSyncedAt:     state.LastSyncedAt,
+		PendingOps:       len(state.PendingOperations),
+		PendingConflicts: unresolvedConflicts(state),
+		DroppedOps:       state.DroppedOperations,
+	}, nil
 }
 
 func (c *Client) SyncNow() error {
@@ -406,7 +414,27 @@ func (c *Client) syncPush(store *offline.Store) error {
 			effectivePayload := payload
 			updateErr := c.UpdateIssue(target, payload)
 			if updateErr != nil && isConflictErr(updateErr) {
-				effectivePayload, updateErr = c.resolveIssueUpdateConflict(target, state, payload)
+				latest, latestErr := c.GetIssue(target)
+				if latestErr == nil {
+					local := state.Issues[target]
+					localSnapshot, _ := json.Marshal(toIssue(local))
+					serverSnapshot, _ := json.Marshal(latest)
+					offline.UpsertConflict(&state, offline.ConflictRecord{
+						Entity:         "issue",
+						TargetID:       target,
+						OperationID:    op.ID,
+						LocalSnapshot:  localSnapshot,
+						ServerSnapshot: serverSnapshot,
+						Fields:         conflictFields(payload, local, latest),
+					})
+					item := fromIssue(latest)
+					item.Dirty = false
+					item.LocalOnly = false
+					item.Deleted = false
+					state.Issues[target] = item
+					continue
+				}
+				updateErr = latestErr
 			}
 			if updateErr != nil {
 				op.Attempts++
@@ -562,6 +590,71 @@ func applyPatch(issue *offline.Issue, patch UpdateIssueInput) {
 	if patch.Labels != nil {
 		issue.Labels = append([]string(nil), (*patch.Labels)...)
 	}
+}
+
+func unresolvedConflicts(state offline.State) int {
+	count := 0
+	for _, conflict := range state.Conflicts {
+		if !conflict.Resolved {
+			count++
+		}
+	}
+	return count
+}
+
+func conflictFields(payload UpdateIssueInput, local offline.Issue, latest Issue) []offline.ConflictField {
+	fields := make([]offline.ConflictField, 0, 8)
+	add := func(field, localValue, serverValue string) {
+		if strings.TrimSpace(localValue) == strings.TrimSpace(serverValue) {
+			return
+		}
+		fields = append(fields, offline.ConflictField{
+			Field:       field,
+			LocalValue:  localValue,
+			ServerValue: serverValue,
+		})
+	}
+	if payload.Title != nil {
+		add("title", strings.TrimSpace(local.Title), strings.TrimSpace(latest.Title))
+	}
+	if payload.Description != nil {
+		add("description", local.Description, latest.Description)
+	}
+	if payload.Status != nil {
+		add("status", strings.TrimSpace(local.Status), strings.TrimSpace(latest.Status))
+	}
+	if payload.Priority != nil {
+		add("priority", strings.TrimSpace(local.Priority), strings.TrimSpace(latest.Priority))
+	}
+	if payload.IssueType != nil {
+		add("issue_type", strings.TrimSpace(local.IssueType), strings.TrimSpace(latest.IssueType))
+	}
+	if payload.AssigneeID != nil {
+		localID := ""
+		if local.AssigneeID != nil {
+			localID = strings.TrimSpace(*local.AssigneeID)
+		}
+		serverID := ""
+		if latest.AssigneeID != nil {
+			serverID = strings.TrimSpace(*latest.AssigneeID)
+		}
+		add("assignee_id", localID, serverID)
+	}
+	if payload.SprintID != nil {
+		localID := ""
+		if local.SprintID != nil {
+			localID = strings.TrimSpace(*local.SprintID)
+		}
+		serverID := ""
+		if latest.SprintID != nil {
+			serverID = strings.TrimSpace(*latest.SprintID)
+		}
+		add("sprint_id", localID, serverID)
+	}
+	if payload.Labels != nil {
+		add("labels", strings.Join(local.Labels, ", "), strings.Join(latest.Labels, ", "))
+	}
+	return fields
 }
 
 func isConnectivityErr(err error) bool {
