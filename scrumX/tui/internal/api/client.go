@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -104,7 +106,7 @@ func NewClient() *Client {
 func (c *Client) startAutoSyncWorker() {
 	c.autoSyncOnce.Do(func() {
 		go func() {
-			ticker := time.NewTicker(30 * time.Second)
+			ticker := time.NewTicker(autoSyncInterval())
 			defer ticker.Stop()
 			for range ticker.C {
 				status, err := c.SyncStatus()
@@ -115,6 +117,22 @@ func (c *Client) startAutoSyncWorker() {
 			}
 		}()
 	})
+}
+
+func autoSyncInterval() time.Duration {
+	const (
+		defaultSeconds = 30
+		minSeconds     = 5
+	)
+	raw := strings.TrimSpace(os.Getenv("SCRUMX_AUTO_SYNC_INTERVAL_SECONDS"))
+	if raw == "" {
+		return time.Duration(defaultSeconds) * time.Second
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < minSeconds {
+		return time.Duration(defaultSeconds) * time.Second
+	}
+	return time.Duration(v) * time.Second
 }
 
 func (c *Client) ListIssues() ([]Issue, error) {

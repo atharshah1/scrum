@@ -74,6 +74,7 @@ type State struct {
 	Projects          map[string]Project        `json:"projects"`
 	Users             map[string]User           `json:"users"`
 	PendingOperations []Operation               `json:"pending_operations"`
+	DroppedOperations int                       `json:"dropped_operations,omitempty"`
 	IDAliases         map[string]string         `json:"id_aliases,omitempty"`
 	IssueQueryCache   map[string][]string       `json:"issue_query_cache,omitempty"`
 	EntitySync        map[string]SyncEntityMeta `json:"entity_sync,omitempty"`
@@ -215,6 +216,7 @@ func EnqueueOperation(state *State, op Operation) {
 	}
 	state.PendingOperations = append(state.PendingOperations, op)
 	if overflow := len(state.PendingOperations) - MaxPendingOperations; overflow > 0 {
+		state.DroppedOperations += overflow
 		state.PendingOperations = append([]Operation(nil), state.PendingOperations[overflow:]...)
 	}
 }
