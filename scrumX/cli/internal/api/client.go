@@ -32,17 +32,18 @@ type TokenPair struct {
 }
 
 type Issue struct {
-	ID          string   `json:"id"`
-	ProjectID   string   `json:"project_id"`
-	ParentID    *string  `json:"parent_id,omitempty"`
-	SprintID    *string  `json:"sprint_id,omitempty"`
-	AssigneeID  *string  `json:"assignee_id,omitempty"`
-	IssueType   string   `json:"issue_type"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Status      string   `json:"status"`
-	Priority    string   `json:"priority"`
-	Labels      []string `json:"labels"`
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	ParentID    *string   `json:"parent_id,omitempty"`
+	SprintID    *string   `json:"sprint_id,omitempty"`
+	AssigneeID  *string   `json:"assignee_id,omitempty"`
+	IssueType   string    `json:"issue_type"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Status      string    `json:"status"`
+	Priority    string    `json:"priority"`
+	Labels      []string  `json:"labels"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type IssueListFilter struct {
@@ -72,15 +73,16 @@ type CreateIssueInput struct {
 }
 
 type UpdateIssueInput struct {
-	ParentID    *string   `json:"parent_id,omitempty"`
-	SprintID    *string   `json:"sprint_id,omitempty"`
-	AssigneeID  *string   `json:"assignee_id,omitempty"`
-	Title       *string   `json:"title,omitempty"`
-	Description *string   `json:"description,omitempty"`
-	Status      *string   `json:"status,omitempty"`
-	Priority    *string   `json:"priority,omitempty"`
-	IssueType   *string   `json:"issue_type,omitempty"`
-	Labels      *[]string `json:"labels,omitempty"`
+	ParentID    *string    `json:"parent_id,omitempty"`
+	SprintID    *string    `json:"sprint_id,omitempty"`
+	AssigneeID  *string    `json:"assignee_id,omitempty"`
+	Title       *string    `json:"title,omitempty"`
+	Description *string    `json:"description,omitempty"`
+	Status      *string    `json:"status,omitempty"`
+	Priority    *string    `json:"priority,omitempty"`
+	IssueType   *string    `json:"issue_type,omitempty"`
+	Labels      *[]string  `json:"labels,omitempty"`
+	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 }
 
 type WorkflowTransition struct {
@@ -256,6 +258,9 @@ func (c *Client) UpdateIssue(id string, input UpdateIssueInput) (Issue, error) {
 	}
 	if input.Labels != nil {
 		body["labels"] = cleanLabels(*input.Labels)
+	}
+	if input.UpdatedAt != nil {
+		body["updated_at"] = input.UpdatedAt.UTC()
 	}
 	var out envelope[Issue]
 	_, err := c.authedRequest(http.MethodPatch, "/issues/"+strings.TrimSpace(id), body, &out)

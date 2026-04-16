@@ -61,15 +61,21 @@ type Operation struct {
 	CreatedAt     time.Time       `json:"created_at"`
 }
 
+type SyncEntityMeta struct {
+	LastSyncedAt time.Time `json:"last_synced_at,omitempty"`
+	LastVersion  time.Time `json:"last_version,omitempty"`
+}
+
 type State struct {
-	Mode              string              `json:"mode"`
-	LastSyncedAt      time.Time           `json:"last_synced_at,omitempty"`
-	Issues            map[string]Issue    `json:"issues"`
-	Projects          map[string]Project  `json:"projects"`
-	Users             map[string]User     `json:"users"`
-	PendingOperations []Operation         `json:"pending_operations"`
-	IDAliases         map[string]string   `json:"id_aliases,omitempty"`
-	IssueQueryCache   map[string][]string `json:"issue_query_cache,omitempty"`
+	Mode              string                    `json:"mode"`
+	LastSyncedAt      time.Time                 `json:"last_synced_at,omitempty"`
+	Issues            map[string]Issue          `json:"issues"`
+	Projects          map[string]Project        `json:"projects"`
+	Users             map[string]User           `json:"users"`
+	PendingOperations []Operation               `json:"pending_operations"`
+	IDAliases         map[string]string         `json:"id_aliases,omitempty"`
+	IssueQueryCache   map[string][]string       `json:"issue_query_cache,omitempty"`
+	EntitySync        map[string]SyncEntityMeta `json:"entity_sync,omitempty"`
 }
 
 type Store struct {
@@ -172,6 +178,9 @@ func normalizeState(in State) State {
 	}
 	if in.IssueQueryCache == nil {
 		in.IssueQueryCache = map[string][]string{}
+	}
+	if in.EntitySync == nil {
+		in.EntitySync = map[string]SyncEntityMeta{}
 	}
 	return in
 }

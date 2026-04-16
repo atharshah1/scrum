@@ -145,15 +145,23 @@ func (c *Client) CreateIssueSmart(input CreateIssueInput) (Issue, error) {
 }
 
 func (c *Client) UpdateIssueSmart(id string, input UpdateIssueInput) (Issue, error) {
-	updated, err := c.UpdateIssue(id, input)
 	cfg, cfgErr := c.cfgStore.Load()
 	if cfgErr != nil {
-		return updated, err
+		return Issue{}, cfgErr
 	}
 	store, storeErr := c.offlineStore(cfg)
 	if storeErr != nil {
-		return updated, err
+		return Issue{}, storeErr
 	}
+	state, loadErr := store.Load()
+	if loadErr == nil && input.UpdatedAt == nil {
+		target := offline.ResolveID(state, id)
+		if local, ok := state.Issues[target]; ok && !local.UpdatedAt.IsZero() {
+			ts := local.UpdatedAt.UTC()
+			input.UpdatedAt = &ts
+		}
+	}
+	updated, err := c.UpdateIssue(id, input)
 	if err == nil {
 		_, _ = store.Update(func(s *offline.State) error {
 			upsertIssueInState(s, fromIssue(updated))
@@ -375,8 +383,14 @@ func (c *Client) offlineStore(cfg config.Config) (*offline.Store, error) {
 }
 
 func (c *Client) syncPull(store *offline.Store) error {
+	state, err := store.Load()
+	if err != nil {
+		return err
+	}
+	since := state.EntitySync["issues"].LastVersion
 	users, _ := c.fetchUsersRemote()
 	collected := make([]Issue, 0, 200)
+	maxSeen := since
 	page := 1
 	for {
 		chunk, err := c.ListIssues(IssueListFilter{Page: page, Limit: 100, SortBy: "updated_at", Order: "desc"})
@@ -386,7 +400,19 @@ func (c *Client) syncPull(store *offline.Store) error {
 		if len(chunk) == 0 {
 			break
 		}
-		collected = append(collected, chunk...)
+		pageHasNew := false
+		for _, item := range chunk {
+			if item.UpdatedAt.After(maxSeen) {
+				maxSeen = item.UpdatedAt
+			}
+			if since.IsZero() || item.UpdatedAt.After(since) || item.UpdatedAt.Equal(since) {
+				collected = append(collected, item)
+				pageHasNew = true
+			}
+		}
+		if !since.IsZero() && !pageHasNew {
+			break
+		}
 		if len(chunk) < 100 {
 			break
 		}
@@ -395,7 +421,8 @@ func (c *Client) syncPull(store *offline.Store) error {
 			break
 		}
 	}
-	_, err := store.Update(func(s *offline.State) error {
+	now := time.Now().UTC()
+	_, err = store.Update(func(s *offline.State) error {
 		for _, it := range collected {
 			item := fromIssue(it)
 			item.Dirty = false
@@ -409,6 +436,9 @@ func (c *Client) syncPull(store *offline.Store) error {
 		for _, user := range users {
 			s.Users[user.ID] = offline.User{ID: user.ID, Email: user.Email, Role: user.Role}
 		}
+		s.EntitySync["issues"] = offline.SyncEntityMeta{LastSyncedAt: now, LastVersion: maxSeen}
+		s.EntitySync["users"] = offline.SyncEntityMeta{LastSyncedAt: now}
+		s.EntitySync["projects"] = offline.SyncEntityMeta{LastSyncedAt: now}
 		return nil
 	})
 	return err
@@ -423,7 +453,8 @@ func (c *Client) syncPush(store *offline.Store) error {
 		return nil
 	}
 	nextQueue := make([]offline.Operation, 0, len(state.PendingOperations))
-	for _, op := range state.PendingOperations {
+	var connectivityErr error
+	for idx, op := range state.PendingOperations {
 		if !op.NextAttemptAt.IsZero() && op.NextAttemptAt.After(time.Now()) {
 			nextQueue = append(nextQueue, op)
 			continue
@@ -439,7 +470,10 @@ func (c *Client) syncPush(store *offline.Store) error {
 				op.LastError = createErr.Error()
 				op.NextAttemptAt = time.Now().Add(offline.Backoff(op.Attempts))
 				if isConnectivityErr(createErr) {
-					return createErr
+					nextQueue = append(nextQueue, op)
+					nextQueue = append(nextQueue, state.PendingOperations[idx+1:]...)
+					connectivityErr = createErr
+					break
 				}
 				nextQueue = append(nextQueue, op)
 				continue
@@ -450,6 +484,12 @@ func (c *Client) syncPush(store *offline.Store) error {
 		case "update":
 			var payload UpdateIssueInput
 			_ = json.Unmarshal(op.Payload, &payload)
+			if payload.UpdatedAt == nil {
+				if local, ok := state.Issues[target]; ok && !local.UpdatedAt.IsZero() {
+					ts := local.UpdatedAt.UTC()
+					payload.UpdatedAt = &ts
+				}
+			}
 			updated, updateErr := c.UpdateIssue(target, payload)
 			if updateErr != nil {
 				if strings.Contains(strings.ToLower(updateErr.Error()), "409") || strings.Contains(strings.ToLower(updateErr.Error()), "conflict") {
@@ -468,7 +508,10 @@ func (c *Client) syncPush(store *offline.Store) error {
 				op.LastError = updateErr.Error()
 				op.NextAttemptAt = time.Now().Add(offline.Backoff(op.Attempts))
 				if isConnectivityErr(updateErr) {
-					return updateErr
+					nextQueue = append(nextQueue, op)
+					nextQueue = append(nextQueue, state.PendingOperations[idx+1:]...)
+					connectivityErr = updateErr
+					break
 				}
 				nextQueue = append(nextQueue, op)
 				continue
@@ -485,7 +528,10 @@ func (c *Client) syncPush(store *offline.Store) error {
 				op.LastError = deleteErr.Error()
 				op.NextAttemptAt = time.Now().Add(offline.Backoff(op.Attempts))
 				if isConnectivityErr(deleteErr) {
-					return deleteErr
+					nextQueue = append(nextQueue, op)
+					nextQueue = append(nextQueue, state.PendingOperations[idx+1:]...)
+					connectivityErr = deleteErr
+					break
 				}
 				nextQueue = append(nextQueue, op)
 				continue
@@ -503,7 +549,18 @@ func (c *Client) syncPush(store *offline.Store) error {
 			state.Issues[id] = item
 		}
 	}
-	return store.Save(state)
+	now := time.Now().UTC()
+	state.EntitySync["issues"] = offline.SyncEntityMeta{
+		LastSyncedAt: now,
+		LastVersion:  state.EntitySync["issues"].LastVersion,
+	}
+	if connectivityErr != nil {
+		state.Mode = offline.ModeOffline
+	}
+	if err := store.Save(state); err != nil {
+		return err
+	}
+	return connectivityErr
 }
 
 func (c *Client) fetchUsersRemote() ([]User, error) {
@@ -535,6 +592,7 @@ func fromIssue(issue Issue) offline.Issue {
 		Status:      strings.TrimSpace(issue.Status),
 		Priority:    strings.TrimSpace(issue.Priority),
 		Labels:      cleanLabels(issue.Labels),
+		UpdatedAt:   issue.UpdatedAt.UTC(),
 	}
 }
 
@@ -551,6 +609,7 @@ func toIssue(issue offline.Issue) Issue {
 		Status:      issue.Status,
 		Priority:    issue.Priority,
 		Labels:      cleanLabels(issue.Labels),
+		UpdatedAt:   issue.UpdatedAt.UTC(),
 	}
 }
 
@@ -571,6 +630,7 @@ func toUpdateInput(issue offline.Issue) UpdateIssueInput {
 		Priority:    &priority,
 		IssueType:   &issueType,
 		Labels:      &labels,
+		UpdatedAt:   &issue.UpdatedAt,
 	}
 }
 
