@@ -1,26 +1,223 @@
-# Scrum CLI
+# ⚡ scrumX — Developer-First Task System
 
-A powerful command-line interface for managing Jira Scrum projects, built with Go.
+> A **Linear + Jira + CLI hybrid** with **offline-first sync**, **AI features**, and **Git-like conflict safety**.
 
-## 🚀 About This Project
+---
 
-I built this project while learning **Go** and doing some "vibecoding". The goal was to create a tool that allows developers to stay in the terminal and manage their Jira workflow without constant context switching to the browser.
+## 🧠 Why scrumX?
 
-It handles authentication, project management, issue tracking, and more—all from the command line.
+Most tools:
 
-## ✨ Features
+* ❌ Lose data in conflicts
+* ❌ Are slow & UI-heavy
+* ❌ Ignore developer workflows
 
-*   **Authentication**: Secure OAuth 2.0 login with Atlassian.
-*   **Project Management**: Create, list, and switch between project contexts.
-*   **Issue Tracking**: Create, list, assign, and transition issues.
-*   **Comments**: View and add comments with rich text support and user mentions.
-*   **Interactive UI**: User-friendly prompts for selecting options.
+scrumX is built differently:
 
-## 📥 Installation
+> 🔥 **CLI + TUI + Web unified system**
+> 🔒 **Offline-first with conflict-safe sync**
+> 🤖 **AI-powered productivity**
 
-Please refer to [INSTALL.md](INSTALL.md) for detailed installation instructions for Linux, macOS, and Windows.
+---
 
-## 💡 Feature Requests
+## ✨ Core Features
 
-Have an idea? Found a bug?
-If you want to request a new feature, please **open an issue** in this repository and add the `feat` tag.
+### ⚡ Developer-First UX
+
+* CLI → fast, scriptable workflows
+* TUI → keyboard-first interaction
+* Web UI → clean, Linear-style interface
+
+---
+
+### 🔄 Offline-First Sync Engine
+
+* Local-first architecture (CLI/TUI)
+* Operation queue (create/update/delete)
+* Push + Pull sync (delta-based)
+* Retry + backoff handling
+
+---
+
+### 🧩 Conflict-Safe Merging (🔥 Differentiator)
+
+* ❌ No data loss
+* ✅ “Keep both” merge strategy
+* 👥 Attribution (who changed what)
+
+```text
+Local change + Remote change → BOTH preserved
+```
+
+👉 Git-style safety for task management
+
+---
+
+### 🔍 JQL-like Query System
+
+* `status=done AND assignee=me`
+* Works across:
+
+  * CLI
+  * TUI
+  * Web
+
+---
+
+### 🤖 AI Layer
+
+* Auto-create issues from text
+* Summarize tickets
+* Suggest priority/labels
+* Multi-provider (OpenAI / Gemini)
+* Fallback + caching
+
+---
+
+### 📊 Insights Engine
+
+* Bottleneck detection
+* Stuck task alerts
+* Team velocity
+* Cycle time
+
+---
+
+### ⚡ Speed UX (Linear-style)
+
+* Inline editing (no modals)
+* Keyboard navigation
+* Instant transitions
+* Command palette (⌘K)
+
+---
+
+## 🏗️ Architecture
+
+```text
+            ┌──────────────┐
+            │   CLI / TUI  │
+            └──────┬───────┘
+                   │
+          ┌────────▼────────┐
+          │   Local Store   │  ← Source of truth (offline-first)
+          └────────┬────────┘
+                   │
+        ┌──────────▼──────────┐
+        │     Sync Engine     │
+        │  (Push / Pull / Q)  │
+        └──────┬─────┬───────┘
+               │     │
+        ┌──────▼     ▼──────┐
+        │   Backend API     │
+        └────────┬──────────┘
+                 │
+        ┌────────▼────────┐
+        │   Web Frontend  │
+        └─────────────────┘
+```
+
+---
+
+## 🔥 Conflict Handling (Key Innovation)
+
+Instead of overwriting:
+
+```text
+User A → "Fix login bug"
+User B → "Resolve auth issue"
+```
+
+scrumX stores:
+
+```json
+{
+  "title": "Fix login bug",
+  "conflicts": [
+    {
+      "field": "title",
+      "values": [
+        { "value": "Fix login bug", "user": "A" },
+        { "value": "Resolve auth issue", "user": "B" }
+      ]
+    }
+  ]
+}
+```
+
+👉 No data is ever lost.
+
+---
+
+## 🖥️ CLI Examples
+
+```bash
+# Search issues (JQL-like)
+scrumx issue search "status=done AND assignee=me"
+
+# Save query
+scrumx issue filter save "my-bugs" "assignee=me AND type=bug"
+
+# Sync
+scrumx sync now
+
+# Conflicts
+scrumx issue conflicts <id>
+scrumx issue resolve <id>
+```
+
+---
+
+## 📦 Tech Stack
+
+* **Backend**: Go (Gin/Fiber style APIs)
+* **Frontend**: Next.js + Tailwind
+* **CLI/TUI**: Go
+* **DB**: PostgreSQL + Local Store
+* **Sync Engine**: Custom (queue + delta sync)
+* **AI**: OpenAI + Gemini
+
+---
+
+## 🚀 What makes this special?
+
+| Feature         | scrumX | Jira | Linear |
+| --------------- | ------ | ---- | ------ |
+| CLI support     | ✅      | ❌    | ❌      |
+| Offline-first   | ✅      | ❌    | ⚠️     |
+| Conflict safety | ✅      | ❌    | ❌      |
+| AI integration  | ✅      | ⚠️   | ⚠️     |
+| Dev-first UX    | ✅      | ❌    | ✅      |
+
+---
+
+## 🧠 Future Work
+
+* Background sync daemon
+* CRDT-based merging
+* Web offline mode (IndexedDB)
+* Multi-user collaboration testing
+
+---
+
+## 📌 Status
+
+> 🚀 **Production-ready architecture (v1)**
+> 🔧 Actively evolving
+
+---
+
+## 🤝 Contributing
+
+PRs welcome — especially for:
+
+* sync engine improvements
+* UI polish
+* performance
+
+---
+
+## 💬 Final Thought
+
+> scrumX is not a Jira clone.
+> It’s a **developer operating system for tasks.**
