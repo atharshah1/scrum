@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/cache"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
@@ -174,9 +175,21 @@ func (h *Handler) list(c *fiber.Ctx) error {
 		}
 		filter.ProjectID = id
 	}
-	cacheKey := fmt.Sprintf("issues:%s:p=%s:s=%s:a=%s:sp=%s:l=%s:t=%s:pa=%s:q=%s:sb=%s:o=%s:pg=%d:li=%d",
+	if updatedSince := strings.TrimSpace(c.Query("updated_since")); updatedSince != "" {
+		parsed, parseErr := time.Parse(time.RFC3339, updatedSince)
+		if parseErr != nil {
+			return utils.JSONError(c, fiber.StatusBadRequest, "invalid updated_since (expected RFC3339)")
+		}
+		utc := parsed.UTC()
+		filter.UpdatedSince = &utc
+	}
+	updatedSinceKey := ""
+	if filter.UpdatedSince != nil {
+		updatedSinceKey = filter.UpdatedSince.UTC().Format(time.RFC3339Nano)
+	}
+	cacheKey := fmt.Sprintf("issues:%s:p=%s:s=%s:a=%s:sp=%s:l=%s:t=%s:pa=%s:us=%s:q=%s:sb=%s:o=%s:pg=%d:li=%d",
 		orgID,
-		filter.ProjectID, filter.Status, filter.AssigneeID, filter.SprintID, filter.Label, filter.IssueType, filter.ParentID,
+		filter.ProjectID, filter.Status, filter.AssigneeID, filter.SprintID, filter.Label, filter.IssueType, filter.ParentID, updatedSinceKey,
 		url.QueryEscape(filter.SearchQuery),
 		filter.SortBy, filter.Order, filter.Page, filter.Limit,
 	)

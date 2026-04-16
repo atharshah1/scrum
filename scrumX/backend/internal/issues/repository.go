@@ -127,6 +127,11 @@ func (r *Repository) List(ctx context.Context, orgID uuid.UUID, filter ListIssue
 		args = append(args, filter.ParentID)
 		argN++
 	}
+	if filter.UpdatedSince != nil && !filter.UpdatedSince.IsZero() {
+		where = append(where, "i.updated_at >= $"+itoa(argN))
+		args = append(args, filter.UpdatedSince.UTC())
+		argN++
+	}
 	if filter.Label != "" {
 		where = append(where, "EXISTS (SELECT 1 FROM issue_labels l WHERE l.org_id=i.org_id AND l.issue_id=i.id AND l.label=$"+itoa(argN)+")")
 		args = append(args, filter.Label)

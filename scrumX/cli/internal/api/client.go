@@ -54,6 +54,7 @@ type IssueListFilter struct {
 	Label      string
 	IssueType  string
 	Query      string
+	UpdatedSince *time.Time
 	SortBy     string
 	Order      string
 	Page       int
@@ -292,6 +293,9 @@ func (c *Client) ListIssues(filter IssueListFilter) ([]Issue, error) {
 	}
 	if v := strings.TrimSpace(filter.Query); v != "" {
 		query.Set("q", v)
+	}
+	if filter.UpdatedSince != nil && !filter.UpdatedSince.IsZero() {
+		query.Set("updated_since", filter.UpdatedSince.UTC().Format(time.RFC3339))
 	}
 	if v := strings.TrimSpace(filter.SortBy); v != "" {
 		query.Set("sort_by", strings.ToLower(v))

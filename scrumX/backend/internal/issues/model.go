@@ -61,6 +61,7 @@ type ListIssuesFilter struct {
 	Label       string
 	IssueType   string
 	ParentID    uuid.UUID
+	UpdatedSince *time.Time
 	SearchQuery string
 	SortBy      string
 	Order       string

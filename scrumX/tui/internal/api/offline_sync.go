@@ -50,36 +50,25 @@ func (c *Client) SyncNow() error {
 	}); err != nil {
 		return err
 	}
-	state, err := store.Load()
-	if err != nil {
+	if err := c.syncPush(store); err != nil {
+		_, _ = store.Update(func(s *offline.State) error {
+			s.Mode = offline.ModeOffline
+			return nil
+		})
 		return err
 	}
-	next := make([]offline.Operation, 0, len(state.PendingOperations))
-	for _, op := range state.PendingOperations {
-		target := offline.ResolveID(state, op.TargetID)
-		switch op.Action {
-		case "update":
-			var payload UpdateIssueInput
-			_ = json.Unmarshal(op.Payload, &payload)
-			if err := c.UpdateIssue(target, payload); err != nil {
-				op.Attempts++
-				op.LastError = err.Error()
-				op.NextAttemptAt = time.Now().Add(offline.Backoff(op.Attempts))
-				next = append(next, op)
-			}
-		default:
-			next = append(next, op)
-		}
-	}
-	state.PendingOperations = next
-	if len(state.PendingOperations) == 0 {
-		state.Mode = offline.ModeOnline
-		state.LastSyncedAt = time.Now().UTC()
-	}
-	if err := store.Save(state); err != nil {
+	if err := c.syncPull(store); err != nil {
+		_, _ = store.Update(func(s *offline.State) error {
+			s.Mode = offline.ModeOffline
+			return nil
+		})
 		return err
 	}
-	_, err = c.ListIssuesSmart()
+	_, err = store.Update(func(s *offline.State) error {
+		s.Mode = offline.ModeOnline
+		s.LastSyncedAt = time.Now().UTC()
+		return nil
+	})
 	return err
 }
 
@@ -288,6 +277,11 @@ func (c *Client) AddIssueLabelSmart(issueID, label string) error {
 		if !ok {
 			item = offline.Issue{ID: target}
 		}
+		var expectedUpdatedAt *time.Time
+		if !item.UpdatedAt.IsZero() {
+			ts := item.UpdatedAt.UTC()
+			expectedUpdatedAt = &ts
+		}
 		seen := map[string]struct{}{}
 		next := make([]string, 0, len(item.Labels)+1)
 		for _, existing := range item.Labels {
@@ -308,7 +302,7 @@ func (c *Client) AddIssueLabelSmart(issueID, label string) error {
 		item.Dirty = true
 		item.UpdatedAt = time.Now().UTC()
 		s.Issues[target] = item
-		payload, _ := json.Marshal(UpdateIssueInput{Labels: &item.Labels})
+		payload, _ := json.Marshal(UpdateIssueInput{Labels: &item.Labels, UpdatedAt: expectedUpdatedAt})
 		s.PendingOperations = append(s.PendingOperations, offline.Operation{
 			ID:        fmt.Sprintf("op-%d", time.Now().UnixNano()),
 			Entity:    "issue",
@@ -320,6 +314,148 @@ func (c *Client) AddIssueLabelSmart(issueID, label string) error {
 		return nil
 	})
 	return err
+}
+
+func (c *Client) syncPull(store *offline.Store) error {
+	state, err := store.Load()
+	if err != nil {
+		return err
+	}
+	since := state.EntitySync["issues"].LastVersion
+	collected := make([]Issue, 0, 200)
+	maxSeen := since
+	page := 1
+	for {
+		chunk, err := c.ListIssuesSince(since, page, 100)
+		if err != nil {
+			return err
+		}
+		if len(chunk) == 0 {
+			break
+		}
+		for _, item := range chunk {
+			if item.UpdatedAt.After(maxSeen) {
+				maxSeen = item.UpdatedAt
+			}
+			if since.IsZero() || item.UpdatedAt.After(since) {
+				collected = append(collected, item)
+			}
+		}
+		if len(chunk) < 100 {
+			break
+		}
+		page++
+		if page > 50 {
+			break
+		}
+	}
+	now := time.Now().UTC()
+	_, err = store.Update(func(s *offline.State) error {
+		for _, it := range collected {
+			item := fromIssue(it)
+			item.Dirty = false
+			item.LocalOnly = false
+			item.Deleted = false
+			s.Issues[it.ID] = item
+			if strings.TrimSpace(it.ProjectID) != "" {
+				s.Projects[it.ProjectID] = offline.Project{ID: it.ProjectID}
+			}
+		}
+		s.EntitySync["issues"] = offline.SyncEntityMeta{LastSyncedAt: now, LastVersion: maxSeen}
+		return nil
+	})
+	return err
+}
+
+func (c *Client) syncPush(store *offline.Store) error {
+	state, err := store.Load()
+	if err != nil {
+		return err
+	}
+	if len(state.PendingOperations) == 0 {
+		return nil
+	}
+	nextQueue := make([]offline.Operation, 0, len(state.PendingOperations))
+	var connectivityErr error
+	for idx, op := range state.PendingOperations {
+		if !op.NextAttemptAt.IsZero() && op.NextAttemptAt.After(time.Now()) {
+			nextQueue = append(nextQueue, op)
+			continue
+		}
+		target := offline.ResolveID(state, op.TargetID)
+		switch op.Action {
+		case "update":
+			var payload UpdateIssueInput
+			_ = json.Unmarshal(op.Payload, &payload)
+			if payload.UpdatedAt == nil {
+				if local, ok := state.Issues[target]; ok && !local.UpdatedAt.IsZero() {
+					ts := local.UpdatedAt.UTC()
+					payload.UpdatedAt = &ts
+				}
+			}
+			updateErr := c.UpdateIssue(target, payload)
+			if updateErr != nil {
+				if strings.Contains(strings.ToLower(updateErr.Error()), "409") || strings.Contains(strings.ToLower(updateErr.Error()), "conflict") {
+					latest, latestErr := c.GetIssue(target)
+					if latestErr == nil {
+						local := fromIssue(latest)
+						applyPatch(&local, payload)
+						merged := toUpdateInput(local)
+						updateErr = c.UpdateIssue(target, merged)
+					}
+				}
+			}
+			if updateErr != nil {
+				op.Attempts++
+				op.LastError = updateErr.Error()
+				op.NextAttemptAt = time.Now().Add(offline.Backoff(op.Attempts))
+				if isConnectivityErr(updateErr) {
+					nextQueue = append(nextQueue, op)
+					nextQueue = append(nextQueue, state.PendingOperations[idx+1:]...)
+					connectivityErr = updateErr
+					break
+				}
+				nextQueue = append(nextQueue, op)
+				continue
+			}
+			if latest, latestErr := c.GetIssue(target); latestErr == nil {
+				item := fromIssue(latest)
+				item.Dirty = false
+				item.LocalOnly = false
+				item.Deleted = false
+				state.Issues[target] = item
+			} else if local, ok := state.Issues[target]; ok {
+				applyPatch(&local, payload)
+				local.Dirty = false
+				local.LocalOnly = false
+				local.Deleted = false
+				local.UpdatedAt = time.Now().UTC()
+				state.Issues[target] = local
+			}
+		default:
+			nextQueue = append(nextQueue, op)
+		}
+	}
+	state.PendingOperations = nextQueue
+	if len(state.PendingOperations) == 0 {
+		for id, item := range state.Issues {
+			item.Dirty = false
+			item.LocalOnly = false
+			state.Issues[id] = item
+		}
+	}
+	now := time.Now().UTC()
+	state.EntitySync["issues"] = offline.SyncEntityMeta{
+		LastSyncedAt: now,
+		LastVersion:  state.EntitySync["issues"].LastVersion,
+	}
+	if connectivityErr != nil {
+		state.Mode = offline.ModeOffline
+	}
+	if err := store.Save(state); err != nil {
+		return err
+	}
+	return connectivityErr
 }
 
 func (c *Client) offlineStore(cfg config.Config) (*offline.Store, error) {
@@ -371,6 +507,26 @@ func toIssues(state offline.State, key string) []Issue {
 		out = append(out, toIssue(item))
 	}
 	return out
+}
+
+func toUpdateInput(issue offline.Issue) UpdateIssueInput {
+	title := issue.Title
+	description := issue.Description
+	status := issue.Status
+	priority := issue.Priority
+	issueType := issue.IssueType
+	labels := append([]string(nil), issue.Labels...)
+	return UpdateIssueInput{
+		Title:       &title,
+		Description: &description,
+		Status:      &status,
+		Priority:    &priority,
+		IssueType:   &issueType,
+		AssigneeID:  issue.AssigneeID,
+		SprintID:    issue.SprintID,
+		Labels:      &labels,
+		UpdatedAt:   &issue.UpdatedAt,
+	}
 }
 
 func applyPatch(issue *offline.Issue, patch UpdateIssueInput) {

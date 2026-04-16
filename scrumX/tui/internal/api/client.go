@@ -95,6 +95,18 @@ type envelope[T any] struct {
 func NewClient() *Client { return &Client{} }
 
 func (c *Client) ListIssues() ([]Issue, error) {
+	return c.listIssuesWithParams(nil, 0, 0)
+}
+
+func (c *Client) ListIssuesSince(updatedSince time.Time, page, limit int) ([]Issue, error) {
+	if updatedSince.IsZero() {
+		return c.listIssuesWithParams(nil, page, limit)
+	}
+	ts := updatedSince.UTC()
+	return c.listIssuesWithParams(&ts, page, limit)
+}
+
+func (c *Client) listIssuesWithParams(updatedSince *time.Time, page, limit int) ([]Issue, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
@@ -102,8 +114,22 @@ func (c *Client) ListIssues() ([]Issue, error) {
 	if cfg.AccessToken == "" {
 		return nil, fmt.Errorf("not logged in: run scrumx auth login first")
 	}
+	path := "/issues"
+	query := url.Values{}
+	if updatedSince != nil && !updatedSince.IsZero() {
+		query.Set("updated_since", updatedSince.UTC().Format(time.RFC3339))
+	}
+	if page > 0 {
+		query.Set("page", fmt.Sprintf("%d", page))
+	}
+	if limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
 	var out envelope[[]Issue]
-	resp, err := c.request(cfg, http.MethodGet, "/issues", nil, &out)
+	resp, err := c.request(cfg, http.MethodGet, path, nil, &out)
 	if err != nil {
 		return nil, err
 	}

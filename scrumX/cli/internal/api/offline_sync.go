@@ -393,25 +393,25 @@ func (c *Client) syncPull(store *offline.Store) error {
 	maxSeen := since
 	page := 1
 	for {
-		chunk, err := c.ListIssues(IssueListFilter{Page: page, Limit: 100, SortBy: "updated_at", Order: "desc"})
+		filter := IssueListFilter{Page: page, Limit: 100, SortBy: "updated_at", Order: "asc"}
+		if !since.IsZero() {
+			s := since
+			filter.UpdatedSince = &s
+		}
+		chunk, err := c.ListIssues(filter)
 		if err != nil {
 			return err
 		}
 		if len(chunk) == 0 {
 			break
 		}
-		pageHasNew := false
 		for _, item := range chunk {
 			if item.UpdatedAt.After(maxSeen) {
 				maxSeen = item.UpdatedAt
 			}
-			if since.IsZero() || item.UpdatedAt.After(since) || item.UpdatedAt.Equal(since) {
+			if since.IsZero() || item.UpdatedAt.After(since) {
 				collected = append(collected, item)
-				pageHasNew = true
 			}
-		}
-		if !since.IsZero() && !pageHasNew {
-			break
 		}
 		if len(chunk) < 100 {
 			break
