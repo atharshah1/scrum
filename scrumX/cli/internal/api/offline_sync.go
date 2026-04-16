@@ -131,7 +131,7 @@ func (c *Client) CreateIssueSmart(input CreateIssueInput) (Issue, error) {
 		item.LocalOnly = true
 		item.UpdatedAt = now
 		upsertIssueInState(s, item)
-		s.PendingOperations = append(s.PendingOperations, offline.Operation{
+		offline.EnqueueOperation(s, offline.Operation{
 			ID:        fmt.Sprintf("op-%d", time.Now().UnixNano()),
 			Entity:    "issue",
 			Action:    "create",
@@ -186,7 +186,7 @@ func (c *Client) UpdateIssueSmart(id string, input UpdateIssueInput) (Issue, err
 		item.UpdatedAt = time.Now().UTC()
 		upsertIssueInState(s, item)
 		payload, _ := json.Marshal(input)
-		s.PendingOperations = append(s.PendingOperations, offline.Operation{
+		offline.EnqueueOperation(s, offline.Operation{
 			ID:        fmt.Sprintf("op-%d", time.Now().UnixNano()),
 			Entity:    "issue",
 			Action:    "update",
@@ -235,7 +235,7 @@ func (c *Client) DeleteIssueSmart(id string) error {
 			item.UpdatedAt = time.Now().UTC()
 			s.Issues[target] = item
 		}
-		s.PendingOperations = append(s.PendingOperations, offline.Operation{
+		offline.EnqueueOperation(s, offline.Operation{
 			ID:        fmt.Sprintf("op-%d", time.Now().UnixNano()),
 			Entity:    "issue",
 			Action:    "delete",
@@ -391,6 +391,7 @@ func (c *Client) syncPull(store *offline.Store) error {
 	users, _ := c.fetchUsersRemote()
 	collected := make([]Issue, 0, 200)
 	maxSeen := since
+	projectMaxSeen := map[string]time.Time{}
 	page := 1
 	for {
 		filter := IssueListFilter{Page: page, Limit: 100, SortBy: "updated_at", Order: "asc"}
@@ -408,6 +409,10 @@ func (c *Client) syncPull(store *offline.Store) error {
 		for _, item := range chunk {
 			if item.UpdatedAt.After(maxSeen) {
 				maxSeen = item.UpdatedAt
+			}
+			projectID := strings.TrimSpace(item.ProjectID)
+			if projectID != "" && item.UpdatedAt.After(projectMaxSeen[projectID]) {
+				projectMaxSeen[projectID] = item.UpdatedAt
 			}
 			if since.IsZero() || item.UpdatedAt.After(since) {
 				collected = append(collected, item)
@@ -437,6 +442,9 @@ func (c *Client) syncPull(store *offline.Store) error {
 			s.Users[user.ID] = offline.User{ID: user.ID, Email: user.Email, Role: user.Role}
 		}
 		s.EntitySync["issues"] = offline.SyncEntityMeta{LastSyncedAt: now, LastVersion: maxSeen}
+		for projectID, lastVersion := range projectMaxSeen {
+			s.EntitySync["issues:project:"+projectID] = offline.SyncEntityMeta{LastSyncedAt: now, LastVersion: lastVersion}
+		}
 		s.EntitySync["users"] = offline.SyncEntityMeta{LastSyncedAt: now}
 		s.EntitySync["projects"] = offline.SyncEntityMeta{LastSyncedAt: now}
 		return nil

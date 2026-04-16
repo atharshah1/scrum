@@ -235,7 +235,7 @@ func (c *Client) UpdateIssueSmart(issueID string, input UpdateIssueInput) error 
 		item.Dirty = true
 		item.UpdatedAt = time.Now().UTC()
 		s.Issues[target] = item
-		s.PendingOperations = append(s.PendingOperations, offline.Operation{
+		offline.EnqueueOperation(s, offline.Operation{
 			ID:        fmt.Sprintf("op-%d", time.Now().UnixNano()),
 			Entity:    "issue",
 			Action:    "update",
@@ -303,7 +303,7 @@ func (c *Client) AddIssueLabelSmart(issueID, label string) error {
 		item.UpdatedAt = time.Now().UTC()
 		s.Issues[target] = item
 		payload, _ := json.Marshal(UpdateIssueInput{Labels: &item.Labels, UpdatedAt: expectedUpdatedAt})
-		s.PendingOperations = append(s.PendingOperations, offline.Operation{
+		offline.EnqueueOperation(s, offline.Operation{
 			ID:        fmt.Sprintf("op-%d", time.Now().UnixNano()),
 			Entity:    "issue",
 			Action:    "update",
@@ -324,6 +324,7 @@ func (c *Client) syncPull(store *offline.Store) error {
 	since := state.EntitySync["issues"].LastVersion
 	collected := make([]Issue, 0, 200)
 	maxSeen := since
+	projectMaxSeen := map[string]time.Time{}
 	page := 1
 	for {
 		chunk, err := c.ListIssuesSince(since, page, 100)
@@ -336,6 +337,10 @@ func (c *Client) syncPull(store *offline.Store) error {
 		for _, item := range chunk {
 			if item.UpdatedAt.After(maxSeen) {
 				maxSeen = item.UpdatedAt
+			}
+			projectID := strings.TrimSpace(item.ProjectID)
+			if projectID != "" && item.UpdatedAt.After(projectMaxSeen[projectID]) {
+				projectMaxSeen[projectID] = item.UpdatedAt
 			}
 			if since.IsZero() || item.UpdatedAt.After(since) {
 				collected = append(collected, item)
@@ -362,6 +367,9 @@ func (c *Client) syncPull(store *offline.Store) error {
 			}
 		}
 		s.EntitySync["issues"] = offline.SyncEntityMeta{LastSyncedAt: now, LastVersion: maxSeen}
+		for projectID, lastVersion := range projectMaxSeen {
+			s.EntitySync["issues:project:"+projectID] = offline.SyncEntityMeta{LastSyncedAt: now, LastVersion: lastVersion}
+		}
 		return nil
 	})
 	return err

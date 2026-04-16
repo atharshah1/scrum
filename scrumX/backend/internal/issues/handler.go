@@ -393,6 +393,9 @@ func (h *Handler) update(c *fiber.Ctx) error {
 	if err := c.BodyParser(&input); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
+	if input.UpdatedAt == nil || input.UpdatedAt.IsZero() {
+		return utils.JSONError(c, fiber.StatusBadRequest, "updated_at is required for optimistic concurrency control")
+	}
 	if input.Title != nil {
 		title, err := validation.NormalizeRequiredString("title", *input.Title, 200)
 		if err != nil {

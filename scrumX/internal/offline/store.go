@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	ModeOnline  = "online"
-	ModeOffline = "offline"
-	ModeSyncing = "syncing"
+	ModeOnline           = "online"
+	ModeOffline          = "offline"
+	ModeSyncing          = "syncing"
+	MaxPendingOperations = 1000
 )
 
 type Issue struct {
@@ -193,6 +194,29 @@ func Backoff(attempt int) time.Duration {
 		attempt = 8
 	}
 	return time.Duration(1<<uint(attempt-1)) * time.Second
+}
+
+func EnqueueOperation(state *State, op Operation) {
+	if state == nil {
+		return
+	}
+	if state.PendingOperations == nil {
+		state.PendingOperations = []Operation{}
+	}
+	if op.Action == "update" && strings.TrimSpace(op.Entity) != "" && strings.TrimSpace(op.TargetID) != "" {
+		compacted := make([]Operation, 0, len(state.PendingOperations))
+		for _, existing := range state.PendingOperations {
+			if existing.Action == "update" && existing.Entity == op.Entity && existing.TargetID == op.TargetID {
+				continue
+			}
+			compacted = append(compacted, existing)
+		}
+		state.PendingOperations = compacted
+	}
+	state.PendingOperations = append(state.PendingOperations, op)
+	if overflow := len(state.PendingOperations) - MaxPendingOperations; overflow > 0 {
+		state.PendingOperations = append([]Operation(nil), state.PendingOperations[overflow:]...)
+	}
 }
 
 func ResolveID(state State, id string) string {

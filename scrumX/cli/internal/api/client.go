@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
 	"strings"
 	"time"
 
@@ -14,7 +15,8 @@ import (
 )
 
 type Client struct {
-	cfgStore *config.Store
+	cfgStore     *config.Store
+	autoSyncOnce sync.Once
 }
 
 type User struct {
@@ -172,7 +174,25 @@ type authRefreshRequest struct {
 }
 
 func NewClient(cfgStore *config.Store) *Client {
-	return &Client{cfgStore: cfgStore}
+	client := &Client{cfgStore: cfgStore}
+	client.startAutoSyncWorker()
+	return client
+}
+
+func (c *Client) startAutoSyncWorker() {
+	c.autoSyncOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				status, err := c.SyncStatus()
+				if err != nil || status.PendingOps == 0 {
+					continue
+				}
+				_ = c.SyncNow()
+			}
+		}()
+	})
 }
 
 func (c *Client) Login(email, password string) (User, TokenPair, error) {
@@ -232,6 +252,12 @@ func (c *Client) CreateIssue(input CreateIssueInput) (Issue, error) {
 }
 
 func (c *Client) UpdateIssue(id string, input UpdateIssueInput) (Issue, error) {
+	if input.UpdatedAt == nil {
+		if current, err := c.GetIssue(strings.TrimSpace(id)); err == nil && !current.UpdatedAt.IsZero() {
+			ts := current.UpdatedAt.UTC()
+			input.UpdatedAt = &ts
+		}
+	}
 	body := map[string]any{}
 	if input.ParentID != nil {
 		body["parent_id"] = strings.TrimSpace(*input.ParentID)

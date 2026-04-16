@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
 	"strings"
 	"time"
 
@@ -14,7 +15,9 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-type Client struct{}
+type Client struct {
+	autoSyncOnce sync.Once
+}
 
 type Issue struct {
 	ID          string    `json:"id"`
@@ -92,7 +95,27 @@ type envelope[T any] struct {
 	} `json:"error"`
 }
 
-func NewClient() *Client { return &Client{} }
+func NewClient() *Client {
+	client := &Client{}
+	client.startAutoSyncWorker()
+	return client
+}
+
+func (c *Client) startAutoSyncWorker() {
+	c.autoSyncOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				status, err := c.SyncStatus()
+				if err != nil || status.PendingOps == 0 {
+					continue
+				}
+				_ = c.SyncNow()
+			}
+		}()
+	})
+}
 
 func (c *Client) ListIssues() ([]Issue, error) {
 	return c.listIssuesWithParams(nil, 0, 0)
@@ -219,20 +242,8 @@ func (c *Client) ListAllowedTransitions(projectID, currentStatus string) ([]stri
 }
 
 func (c *Client) UpdateIssueStatus(issueID, status string) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-	body := map[string]string{"status": strings.ToLower(strings.TrimSpace(status))}
-	var out envelope[map[string]any]
-	resp, err := c.request(cfg, http.MethodPatch, "/issues/"+strings.TrimSpace(issueID), body, &out)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
-		return fmt.Errorf("request failed (%d): %s", resp.StatusCode(), parseError(out.Error.Message, resp.StatusCode()))
-	}
-	return nil
+	normalized := strings.ToLower(strings.TrimSpace(status))
+	return c.UpdateIssue(issueID, UpdateIssueInput{Status: &normalized})
 }
 
 func (c *Client) GetIssue(issueID string) (Issue, error) {
@@ -258,6 +269,12 @@ func (c *Client) UpdateIssue(issueID string, input UpdateIssueInput) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
+	}
+	if input.UpdatedAt == nil {
+		if current, getErr := c.GetIssue(strings.TrimSpace(issueID)); getErr == nil && !current.UpdatedAt.IsZero() {
+			ts := current.UpdatedAt.UTC()
+			input.UpdatedAt = &ts
+		}
 	}
 	body := map[string]any{}
 	if input.Title != nil {
