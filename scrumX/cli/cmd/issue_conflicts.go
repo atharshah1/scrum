@@ -69,7 +69,8 @@ var issueConflictsListCmd = &cobra.Command{
 		utils.PrintTable([]string{"CONFLICT_ID", "ISSUE_ID", "STATE", "FIELDS", "ACTOR", "CREATED"}, rows)
 		fmt.Printf("\nTotal conflicts: %d\n", len(conflicts))
 		if !includeAll {
-			fmt.Println("Hint: use `scrumx issue conflicts show <conflict-id|issue-id>` then `scrumx issue conflicts resolve <...> --action keep-mine|keep-server|keep-both|later`")
+			fmt.Println("Hint: scrumx issue conflicts show <conflict-id|issue-id>")
+			fmt.Println("      scrumx issue conflicts resolve <...> --action keep-mine|keep-server|keep-both|later")
 		}
 		return nil
 	},
