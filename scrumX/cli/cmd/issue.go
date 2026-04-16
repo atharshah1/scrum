@@ -86,7 +86,7 @@ var issueCreateCmd = &cobra.Command{
 		if strings.TrimSpace(projectID) == "" {
 			return fmt.Errorf("--project-id is required (or set context current_project_id)")
 		}
-		issue, err := client.CreateIssue(api.CreateIssueInput{
+		issue, err := client.CreateIssueSmart(api.CreateIssueInput{
 			Title:       args[0],
 			ProjectID:   projectID,
 			Description: description,
@@ -133,7 +133,7 @@ var issueListCmd = &cobra.Command{
 		limit, _ := cmd.Flags().GetInt("limit")
 		filter.Page = page
 		filter.Limit = limit
-		issues, err := client.ListIssues(filter)
+		issues, err := client.ListIssuesSmart(filter)
 		if err != nil {
 			return err
 		}
@@ -165,7 +165,7 @@ var issueSearchCmd = &cobra.Command{
 		}
 		page, _ := cmd.Flags().GetInt("page")
 		limit, _ := cmd.Flags().GetInt("limit")
-		issues, err := client.SearchIssues(args[0], page, limit)
+		issues, err := client.SearchIssuesSmart(args[0], page, limit)
 		if err != nil {
 			return err
 		}
@@ -191,7 +191,7 @@ var issueViewCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		issue, err := client.GetIssue(args[0])
+		issue, err := client.GetIssueSmart(args[0])
 		if err != nil {
 			return err
 		}
@@ -279,7 +279,7 @@ var issueUpdateCmd = &cobra.Command{
 		if setCount == 0 {
 			return fmt.Errorf("no changes provided")
 		}
-		issue, err := client.UpdateIssue(id, input)
+		issue, err := client.UpdateIssueSmart(id, input)
 		if err != nil {
 			return err
 		}
@@ -298,7 +298,7 @@ var issueAssignCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		issue, err := client.UpdateIssue(args[0], api.UpdateIssueInput{AssigneeID: &args[1]})
+		issue, err := client.UpdateIssueSmart(args[0], api.UpdateIssueInput{AssigneeID: &args[1]})
 		if err != nil {
 			return err
 		}
@@ -320,7 +320,7 @@ var issueMoveCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		issue, err := client.GetIssue(args[0])
+		issue, err := client.GetIssueSmart(args[0])
 		if err != nil {
 			return err
 		}
@@ -344,11 +344,28 @@ var issueMoveCmd = &cobra.Command{
 		if !contains(allowed, target) {
 			return fmt.Errorf("invalid transition to %q (allowed: %s)", target, strings.Join(allowed, ", "))
 		}
-		updated, err := client.UpdateIssue(issue.ID, api.UpdateIssueInput{Status: &target})
+		updated, err := client.UpdateIssueSmart(issue.ID, api.UpdateIssueInput{Status: &target})
 		if err != nil {
 			return err
 		}
 		fmt.Println(utils.SuccessText(fmt.Sprintf("Moved issue %s: %s -> %s", updated.ID, issue.Status, updated.Status)))
+		return nil
+	},
+}
+
+var issueDeleteCmd = &cobra.Command{
+	Use:   "delete <issue-id>",
+	Short: "Delete an issue (queues offline when disconnected)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newClient()
+		if err != nil {
+			return err
+		}
+		if err := client.DeleteIssueSmart(args[0]); err != nil {
+			return err
+		}
+		fmt.Println(utils.SuccessText(fmt.Sprintf("Deleted issue %s (or queued for sync)", args[0])))
 		return nil
 	},
 }
@@ -427,7 +444,7 @@ var issueFilterRunCmd = &cobra.Command{
 		}
 		page, _ := cmd.Flags().GetInt("page")
 		limit, _ := cmd.Flags().GetInt("limit")
-		issues, err := client.SearchIssues(selected.Query, page, limit)
+		issues, err := client.SearchIssuesSmart(selected.Query, page, limit)
 		if err != nil {
 			return err
 		}
@@ -539,7 +556,7 @@ var issueBulkAssignCmd = &cobra.Command{
 		}
 		failed := 0
 		for _, id := range ids {
-			if _, err := client.UpdateIssue(id, api.UpdateIssueInput{AssigneeID: &args[0]}); err != nil {
+			if _, err := client.UpdateIssueSmart(id, api.UpdateIssueInput{AssigneeID: &args[0]}); err != nil {
 				failed++
 				fmt.Printf("✗ %s: %v\n", id, err)
 				continue
@@ -573,7 +590,7 @@ var issueBulkMoveCmd = &cobra.Command{
 		status := strings.ToLower(strings.TrimSpace(args[0]))
 		failed := 0
 		for _, id := range ids {
-			if _, err := client.UpdateIssue(id, api.UpdateIssueInput{Status: &status}); err != nil {
+			if _, err := client.UpdateIssueSmart(id, api.UpdateIssueInput{Status: &status}); err != nil {
 				failed++
 				fmt.Printf("✗ %s: %v\n", id, err)
 				continue
@@ -637,7 +654,7 @@ var issueBulkUpdateCmd = &cobra.Command{
 		}
 		failed := 0
 		for _, id := range ids {
-			if _, err := client.UpdateIssue(id, input); err != nil {
+			if _, err := client.UpdateIssueSmart(id, input); err != nil {
 				failed++
 				fmt.Printf("✗ %s: %v\n", id, err)
 				continue
@@ -710,7 +727,7 @@ var issueCommentListCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(issueCmd)
-	issueCmd.AddCommand(issueCreateCmd, issueListCmd, issueSearchCmd, issueViewCmd, issueUpdateCmd, issueAssignCmd, issueMoveCmd, issueLabelCmd, issueBulkCmd, issueCommentCmd, issueFilterCmd)
+	issueCmd.AddCommand(issueCreateCmd, issueListCmd, issueSearchCmd, issueViewCmd, issueUpdateCmd, issueAssignCmd, issueMoveCmd, issueDeleteCmd, issueLabelCmd, issueBulkCmd, issueCommentCmd, issueFilterCmd)
 	issueLabelCmd.AddCommand(issueLabelAddCmd, issueLabelRemoveCmd)
 	issueBulkCmd.AddCommand(issueBulkAssignCmd, issueBulkMoveCmd, issueBulkUpdateCmd)
 	issueCommentCmd.AddCommand(issueCommentAddCmd, issueCommentListCmd)

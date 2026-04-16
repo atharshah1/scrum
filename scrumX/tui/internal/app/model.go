@@ -37,6 +37,10 @@ type issueLoadedMsg struct {
 type actionAppliedMsg struct{ err error }
 type eventMsg struct{ event api.Event }
 type eventErrMsg struct{ err error }
+type syncStatusLoadedMsg struct {
+	status api.SyncStatus
+	err    error
+}
 
 const eventListenTimeout = 25 * time.Second
 
@@ -64,6 +68,9 @@ type Model struct {
 	inCommandMode     bool
 	commandInput      string
 	searchQuery       string
+	syncMode          string
+	syncPending       int
+	lastSyncedAt      time.Time
 }
 
 func NewModel() Model {
@@ -71,7 +78,7 @@ func NewModel() Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.fetchDataCmd(), m.fetchNotificationsCmd(), m.listenEventCmd())
+	return tea.Batch(m.fetchDataCmd(), m.fetchNotificationsCmd(), m.fetchSyncStatusCmd(), m.listenEventCmd())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -275,7 +282,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.loading = true
 			m.err = nil
-			return m, tea.Batch(m.fetchDataCmd(), m.fetchNotificationsCmd())
+			return m, tea.Batch(m.fetchDataCmd(), m.fetchNotificationsCmd(), m.fetchSyncStatusCmd())
+		case "S":
+			m.loading = true
+			return m, tea.Batch(m.syncNowCmd(), m.fetchSyncStatusCmd())
 		case "up", "k":
 			if m.selectedRow > 0 {
 				m.selectedRow--
@@ -345,6 +355,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case syncStatusLoadedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.syncMode = msg.status.Mode
+		m.syncPending = msg.status.PendingOps
+		m.lastSyncedAt = msg.status.LastSyncedAt
+
 	case transitionsLoadedMsg:
 		m.loading = false
 		if msg.err != nil {
@@ -369,7 +388,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = nil
-		return m, m.fetchDataCmd()
+		return m, tea.Batch(m.fetchDataCmd(), m.fetchSyncStatusCmd())
 
 	case issueLoadedMsg:
 		m.loading = false
@@ -388,7 +407,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = nil
-		cmds := []tea.Cmd{m.fetchDataCmd(), m.fetchNotificationsCmd()}
+		cmds := []tea.Cmd{m.fetchDataCmd(), m.fetchNotificationsCmd(), m.fetchSyncStatusCmd()}
 		if m.inIssueDetailMode {
 			if id := m.currentSelectedIssueID(); id != "" {
 				cmds = append(cmds, m.fetchIssueCmd(id))
@@ -423,6 +442,14 @@ func (m Model) View() string {
 	var b strings.Builder
 	b.WriteString(title)
 	b.WriteString(fmt.Sprintf("\nUnread notifications: %d\n", m.unreadCount))
+	lastSyncText := "-"
+	if !m.lastSyncedAt.IsZero() {
+		lastSyncText = m.lastSyncedAt.Local().Format(time.RFC3339)
+	}
+	if strings.TrimSpace(m.syncMode) == "" {
+		m.syncMode = "online"
+	}
+	b.WriteString(fmt.Sprintf("Mode: %s | Pending sync ops: %d | Last sync: %s\n", m.syncMode, m.syncPending, lastSyncText))
 	if strings.TrimSpace(m.searchQuery) != "" {
 		b.WriteString(fmt.Sprintf("Active filter: %s\n", m.searchQuery))
 	}
@@ -530,7 +557,7 @@ func (m Model) View() string {
 		b.WriteString("Keys: t title • e description • a assignee • l add label • p cycle priority • Esc close\n")
 		return b.String()
 	}
-	b.WriteString("\nKeys: ←/→ switch columns • ↑/↓ move • m move issue • d details/edit • /search or :filter • n notifications • r refresh • q quit\n")
+	b.WriteString("\nKeys: ←/→ switch columns • ↑/↓ move • m move issue • d details/edit • /search or :filter • n notifications • r refresh • S sync now • q quit\n")
 	return b.String()
 }
 
@@ -548,14 +575,14 @@ func (m Model) fetchDataCmd() tea.Cmd {
 			if strings.TrimSpace(m.searchQuery) == "" {
 				return dataLoadedMsg{board: &board}
 			}
-			items, err := m.client.SearchIssues(m.searchQuery)
+			items, err := m.client.SearchIssuesSmart(m.searchQuery)
 			return dataLoadedMsg{board: &board, searchIssues: items, err: err}
 		}
 		if strings.TrimSpace(m.searchQuery) != "" {
-			issues, err := m.client.SearchIssues(m.searchQuery)
+			issues, err := m.client.SearchIssuesSmart(m.searchQuery)
 			return dataLoadedMsg{issues: issues, err: err}
 		}
-		issues, err := m.client.ListIssues()
+		issues, err := m.client.ListIssuesSmart()
 		return dataLoadedMsg{issues: issues, err: err}
 	}
 }
@@ -576,28 +603,42 @@ func (m Model) fetchTransitionsCmd(projectID, currentStatus string) tea.Cmd {
 
 func (m Model) applyTransitionCmd(issueID, status string) tea.Cmd {
 	return func() tea.Msg {
-		err := m.client.UpdateIssueStatus(issueID, status)
+		err := m.client.UpdateIssueStatusSmart(issueID, status)
 		return transitionAppliedMsg{err: err}
 	}
 }
 
 func (m Model) fetchIssueCmd(issueID string) tea.Cmd {
 	return func() tea.Msg {
-		item, err := m.client.GetIssue(issueID)
+		item, err := m.client.GetIssueSmart(issueID)
 		return issueLoadedMsg{issue: item, err: err}
 	}
 }
 
 func (m Model) updateIssueFieldCmd(issueID string, input api.UpdateIssueInput) tea.Cmd {
 	return func() tea.Msg {
-		err := m.client.UpdateIssue(issueID, input)
+		err := m.client.UpdateIssueSmart(issueID, input)
 		return actionAppliedMsg{err: err}
 	}
 }
 
 func (m Model) addLabelCmd(issueID, label string) tea.Cmd {
 	return func() tea.Msg {
-		err := m.client.AddIssueLabel(issueID, label)
+		err := m.client.AddIssueLabelSmart(issueID, label)
+		return actionAppliedMsg{err: err}
+	}
+}
+
+func (m Model) fetchSyncStatusCmd() tea.Cmd {
+	return func() tea.Msg {
+		status, err := m.client.SyncStatus()
+		return syncStatusLoadedMsg{status: status, err: err}
+	}
+}
+
+func (m Model) syncNowCmd() tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.SyncNow()
 		return actionAppliedMsg{err: err}
 	}
 }
