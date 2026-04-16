@@ -216,6 +216,8 @@ func EnqueueOperation(state *State, op Operation) {
 	}
 	state.PendingOperations = append(state.PendingOperations, op)
 	if overflow := len(state.PendingOperations) - MaxPendingOperations; overflow > 0 {
+		// When queue capacity is exceeded, drop the oldest operations and track
+		// how many were dropped for observability.
 		state.DroppedOperations += overflow
 		state.PendingOperations = append([]Operation(nil), state.PendingOperations[overflow:]...)
 	}

@@ -19,6 +19,8 @@ type SyncStatus struct {
 	PendingOps   int
 }
 
+const issueProjectSyncKeyPrefix = "issues_by_project:"
+
 func (c *Client) SyncStatus() (SyncStatus, error) {
 	cfg, err := config.Load()
 	if err != nil {
@@ -368,7 +370,7 @@ func (c *Client) syncPull(store *offline.Store) error {
 		}
 		s.EntitySync["issues"] = offline.SyncEntityMeta{LastSyncedAt: now, LastVersion: maxSeen}
 		for projectID, lastVersion := range projectMaxSeen {
-			s.EntitySync["issues:project:"+projectID] = offline.SyncEntityMeta{LastSyncedAt: now, LastVersion: lastVersion}
+			s.EntitySync[issueProjectSyncKeyPrefix+projectID] = offline.SyncEntityMeta{LastSyncedAt: now, LastVersion: lastVersion}
 		}
 		return nil
 	})
