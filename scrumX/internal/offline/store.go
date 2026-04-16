@@ -80,6 +80,8 @@ type ConflictRecord struct {
 	Fields           []ConflictField `json:"fields,omitempty"`
 	Resolved         bool            `json:"resolved"`
 	Resolution       string          `json:"resolution,omitempty"`
+	ResolvedByID     string          `json:"resolved_by_id,omitempty"`
+	ResolvedByName   string          `json:"resolved_by_name,omitempty"`
 	CreatedAt        time.Time       `json:"created_at"`
 	ResolvedAt       time.Time       `json:"resolved_at,omitempty"`
 }
