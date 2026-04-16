@@ -201,6 +201,8 @@ func isValidResolutionAction(action string) bool {
 	}
 }
 
+// appendKeepBothNote appends an audit block to the issue description when
+// keep-both is selected so server-side scalar values are preserved in text.
 func appendKeepBothNote(description string, conflict offline.ConflictRecord, resolverID string, resolvedAt time.Time) string {
 	resolver := strings.TrimSpace(resolverID)
 	if resolver == "" {
