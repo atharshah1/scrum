@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sync"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atharshah1/scrum/scrumX/tui/internal/config"

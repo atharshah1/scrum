@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sync"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atharshah1/scrum/scrumX/cli/internal/config"
@@ -49,18 +49,18 @@ type Issue struct {
 }
 
 type IssueListFilter struct {
-	ProjectID  string
-	Status     string
-	AssigneeID string
-	SprintID   string
-	Label      string
-	IssueType  string
-	Query      string
+	ProjectID    string
+	Status       string
+	AssigneeID   string
+	SprintID     string
+	Label        string
+	IssueType    string
+	Query        string
 	UpdatedSince *time.Time
-	SortBy     string
-	Order      string
-	Page       int
-	Limit      int
+	SortBy       string
+	Order        string
+	Page         int
+	Limit        int
 }
 
 type CreateIssueInput struct {
