@@ -17,16 +17,17 @@ import (
 type Client struct{}
 
 type Issue struct {
-	ID          string   `json:"id"`
-	ProjectID   string   `json:"project_id"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Status      string   `json:"status"`
-	Priority    string   `json:"priority"`
-	IssueType   string   `json:"issue_type"`
-	Labels      []string `json:"labels"`
-	AssigneeID  *string  `json:"assignee_id,omitempty"`
-	SprintID    *string  `json:"sprint_id,omitempty"`
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Status      string    `json:"status"`
+	Priority    string    `json:"priority"`
+	IssueType   string    `json:"issue_type"`
+	Labels      []string  `json:"labels"`
+	AssigneeID  *string   `json:"assignee_id,omitempty"`
+	SprintID    *string   `json:"sprint_id,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type BoardIssue struct {
@@ -72,14 +73,15 @@ type Event struct {
 }
 
 type UpdateIssueInput struct {
-	Title       *string   `json:"title,omitempty"`
-	Description *string   `json:"description,omitempty"`
-	Status      *string   `json:"status,omitempty"`
-	Priority    *string   `json:"priority,omitempty"`
-	IssueType   *string   `json:"issue_type,omitempty"`
-	AssigneeID  *string   `json:"assignee_id,omitempty"`
-	SprintID    *string   `json:"sprint_id,omitempty"`
-	Labels      *[]string `json:"labels,omitempty"`
+	Title       *string    `json:"title,omitempty"`
+	Description *string    `json:"description,omitempty"`
+	Status      *string    `json:"status,omitempty"`
+	Priority    *string    `json:"priority,omitempty"`
+	IssueType   *string    `json:"issue_type,omitempty"`
+	AssigneeID  *string    `json:"assignee_id,omitempty"`
+	SprintID    *string    `json:"sprint_id,omitempty"`
+	Labels      *[]string  `json:"labels,omitempty"`
+	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 }
 
 type envelope[T any] struct {
@@ -255,6 +257,9 @@ func (c *Client) UpdateIssue(issueID string, input UpdateIssueInput) error {
 	}
 	if input.Labels != nil {
 		body["labels"] = *input.Labels
+	}
+	if input.UpdatedAt != nil {
+		body["updated_at"] = input.UpdatedAt.UTC()
 	}
 	var out envelope[map[string]any]
 	resp, err := c.request(cfg, http.MethodPatch, "/issues/"+strings.TrimSpace(issueID), body, &out)

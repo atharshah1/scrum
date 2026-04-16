@@ -211,20 +211,27 @@ func (c *Client) GetIssueSmart(id string) (Issue, error) {
 }
 
 func (c *Client) UpdateIssueSmart(issueID string, input UpdateIssueInput) error {
-	if err := c.UpdateIssue(issueID, input); err == nil {
-		if status, statusErr := c.SyncStatus(); statusErr == nil && status.PendingOps > 0 {
-			_ = c.SyncNow()
-		}
-		return nil
-	} else if !isConnectivityErr(err) {
-		return err
-	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 	store, err := c.offlineStore(cfg)
 	if err != nil {
+		return err
+	}
+	if state, loadErr := store.Load(); loadErr == nil && input.UpdatedAt == nil {
+		target := offline.ResolveID(state, issueID)
+		if item, ok := state.Issues[target]; ok && !item.UpdatedAt.IsZero() {
+			ts := item.UpdatedAt.UTC()
+			input.UpdatedAt = &ts
+		}
+	}
+	if err := c.UpdateIssue(issueID, input); err == nil {
+		if status, statusErr := c.SyncStatus(); statusErr == nil && status.PendingOps > 0 {
+			_ = c.SyncNow()
+		}
+		return nil
+	} else if !isConnectivityErr(err) {
 		return err
 	}
 	payload, _ := json.Marshal(input)
@@ -337,6 +344,7 @@ func fromIssue(issue Issue) offline.Issue {
 		Status:      issue.Status,
 		Priority:    issue.Priority,
 		Labels:      append([]string(nil), issue.Labels...),
+		UpdatedAt:   issue.UpdatedAt.UTC(),
 	}
 }
 
@@ -352,6 +360,7 @@ func toIssue(item offline.Issue) Issue {
 		Status:      item.Status,
 		Priority:    item.Priority,
 		Labels:      append([]string(nil), item.Labels...),
+		UpdatedAt:   item.UpdatedAt.UTC(),
 	}
 }
 
