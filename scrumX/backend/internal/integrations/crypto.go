@@ -26,7 +26,7 @@ type credentialEnvelope struct {
 func newCredentialCipher(rawKey string) (*credentialCipher, error) {
 	key := strings.TrimSpace(rawKey)
 	if key == "" {
-		return nil, errors.New("integration credentials key is required")
+		return nil, errors.New("integration credentials key is required (set INTEGRATION_CREDENTIALS_KEY)")
 	}
 	decoded, err := base64.StdEncoding.DecodeString(key)
 	if err != nil {
