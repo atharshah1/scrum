@@ -174,7 +174,9 @@ func (h *Handler) invite(c *fiber.Ctx) error {
 	defer tx.Rollback()
 
 	var invitedUserID uuid.UUID
-	err = tx.QueryRowContext(c.Context(), `SELECT id FROM users WHERE org_id=$1 AND email=$2 LIMIT 1`, orgID, email).Scan(&invitedUserID)
+	// Global identity lookup: users are reusable across organizations and membership
+	// rows establish tenancy boundaries.
+	err = tx.QueryRowContext(c.Context(), `SELECT id FROM users WHERE email=$1 ORDER BY created_at DESC LIMIT 1`, email).Scan(&invitedUserID)
 	if err != nil {
 		if err != sql.ErrNoRows {
 			return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())

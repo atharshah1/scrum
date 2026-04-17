@@ -9,7 +9,7 @@ class RealtimeClient {
   private shouldReconnect = false;
   private targetEndpoint: string | null = null;
 
-  connect(accessToken: string, orgId?: string, projectId?: string) {
+  connect(accessToken: string, projectId?: string) {
     if (typeof window === 'undefined' || !accessToken) return;
     document.cookie = `ws_access_token=${encodeURIComponent(accessToken)}; Path=/; SameSite=Lax`;
     this.shouldReconnect = true;
@@ -27,7 +27,6 @@ class RealtimeClient {
       }
     })();
     const endpoint = new URL(process.env.NEXT_PUBLIC_WS_URL ?? fallback);
-    void orgId;
     if (projectId) {
       endpoint.searchParams.set('project_id', projectId);
     } else {

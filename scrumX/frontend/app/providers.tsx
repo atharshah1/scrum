@@ -39,7 +39,7 @@ function RealtimeBridge() {
       return;
     }
 
-    realtimeClient.connect(accessToken, orgId ?? undefined, selectedProjectId ?? undefined);
+    realtimeClient.connect(accessToken, selectedProjectId ?? undefined);
     const unsub = realtimeClient.subscribe((event) => {
       const { issueId, projectId } = extractIssuePayload(event);
 

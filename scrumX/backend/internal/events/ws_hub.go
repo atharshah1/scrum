@@ -86,7 +86,7 @@ func (h *WebsocketHub) Broadcast(event Event) {
 
 	eventProjectID := event.Scope.ProjectID
 	for conn, sub := range clients {
-		if sub.orgID != uuid.Nil && sub.orgID != event.OrgID {
+		if sub.orgID != event.OrgID {
 			continue
 		}
 		if sub.projectID != nil {

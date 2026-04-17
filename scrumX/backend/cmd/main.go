@@ -207,6 +207,7 @@ func main() {
 		}
 		defer wsHub.Remove(conn)
 		timer := time.AfterFunc(time.Until(expiry), func() {
+			// Close is intentionally best-effort; connection may already be closed.
 			_ = conn.Close()
 		})
 		defer timer.Stop()
