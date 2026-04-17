@@ -94,9 +94,7 @@ func main() {
 	webhookDispatcher := webhooks.NewDispatcher(log, bus, cfg.WebhookTimeout, database)
 	automationStore := automation.NewStore(database)
 	automationEngine := automation.NewEngine(log, automationStore, webhookDispatcher, cfg.AutomationWorkers, issueService, cfg.AutomationMaxRetries, cfg.AutomationBackoff)
-	if !cfg.KafkaEnabled {
-		bus.Subscribe("*", automationEngine.Handle)
-	}
+	bus.Subscribe("*", automationEngine.Handle)
 
 	notifRepo := notifications.NewRepository(database)
 	notifService := notifications.NewService(notifRepo, cfg.NotifyActor)
@@ -278,9 +276,7 @@ func main() {
 		dispatcher := events.NewOutboxDispatcher(log, outboxStore, kafkaPublisher, 100, 500*time.Millisecond, 5, 250*time.Millisecond)
 		go dispatcher.Start(ctx)
 	}
-	if !cfg.KafkaEnabled {
-		automationEngine.Start(ctx)
-	}
+	automationEngine.Start(ctx)
 
 	go func() {
 		if err := app.Listen(":" + cfg.Port); err != nil {
