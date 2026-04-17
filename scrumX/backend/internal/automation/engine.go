@@ -66,6 +66,10 @@ func (e *Engine) Enqueue(event events.Event) {
 	}
 }
 
+func (e *Engine) Handle(event events.Event) {
+	e.Enqueue(event)
+}
+
 func (e *Engine) Start(ctx context.Context) {
 	for i := 0; i < e.workerCount; i++ {
 		go e.worker(ctx)

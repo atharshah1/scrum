@@ -95,7 +95,7 @@ func main() {
 	automationStore := automation.NewStore(database)
 	automationEngine := automation.NewEngine(log, automationStore, webhookDispatcher, cfg.AutomationWorkers, issueService, cfg.AutomationMaxRetries, cfg.AutomationBackoff)
 	if !cfg.KafkaEnabled {
-		bus.Subscribe("*", automationEngine.Enqueue)
+		bus.Subscribe("*", automationEngine.Handle)
 	}
 
 	notifRepo := notifications.NewRepository(database)
@@ -265,7 +265,7 @@ func main() {
 	releasemodule.NewHandler(database, authzService, bus).RegisterRoutes(secure)
 	itsm.NewHandler(database, authzService, bus).RegisterRoutes(secure)
 	automation.NewHandler(automationStore, automationEngine).RegisterRoutes(secure)
-	webhooks.NewHandler(webhookDispatcher, bus).RegisterRoutes(secure)
+	webhooks.NewHandler(database, webhookDispatcher, bus).RegisterRoutes(secure)
 	integrationsHandler.RegisterRoutes(secure)
 	insights.NewHandler(database).RegisterRoutes(secure)
 	workflows.NewHandler(database, authzService).RegisterRoutes(secure)
