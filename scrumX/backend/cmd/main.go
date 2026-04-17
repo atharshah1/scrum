@@ -210,7 +210,7 @@ func main() {
 		log.Info("ws_connected", "org_id", orgID, "user_id", userID, "project_id", projectID, "expires_at", expiry, "remote_addr", conn.RemoteAddr().String())
 		defer wsHub.Remove(conn)
 		timer := time.AfterFunc(time.Until(expiry), func() {
-			log.Info("ws_disconnected", "reason", "token_expired", "org_id", orgID, "user_id", userID, "project_id", projectID, "remote_addr", conn.RemoteAddr().String())
+			log.Info("ws_disconnected", "reason", "token_expired", "org_id", orgID, "user_id", userID, "project_id", projectID)
 			// Close is intentionally best-effort; connection may already be closed.
 			_ = conn.Close()
 		})

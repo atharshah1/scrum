@@ -39,3 +39,18 @@ func TestValidate_RejectsMissingResourceScope(t *testing.T) {
 		t.Fatal("expected validation error for missing resource scope")
 	}
 }
+
+func TestValidate_RejectsGenericFallbackResourceScope(t *testing.T) {
+	event := Event{
+		ID:    uuid.New(),
+		OrgID: uuid.New(),
+		Type:  "issue.created",
+		Scope: Scope{
+			ResourceType: "event",
+			ResourceID:   uuid.New(),
+		},
+	}
+	if err := Validate(event); err == nil {
+		t.Fatal("expected validation error for generic fallback scope")
+	}
+}

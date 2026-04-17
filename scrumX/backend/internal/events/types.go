@@ -86,6 +86,9 @@ func Validate(event Event) error {
 	if strings.TrimSpace(event.Scope.ResourceType) == "" {
 		return errors.New("scope.resource_type is required")
 	}
+	if strings.EqualFold(strings.TrimSpace(event.Scope.ResourceType), "event") {
+		return errors.New("scope.resource_type must identify a concrete resource")
+	}
 	if event.Scope.ResourceID == uuid.Nil {
 		return errors.New("scope.resource_id is required")
 	}
