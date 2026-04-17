@@ -6,6 +6,7 @@ import { AuthBootstrap } from '@/components/auth/auth-bootstrap';
 import { ToastList, toast } from '@/components/ui/toast';
 import { realtimeClient } from '@/lib/websocket';
 import { qk } from '@/lib/query-keys';
+import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import type { Board, ScrumEvent } from '@/types';
 
@@ -26,6 +27,8 @@ function extractIssuePayload(event: ScrumEvent): { issueId?: string; projectId?:
 function RealtimeBridge() {
   const queryClient = useQueryClient();
   const accessToken = useAuthStore((s) => s.tokens?.access_token);
+  const orgId = useAuthStore((s) => s.orgId);
+  const selectedProjectId = useAppStore((s) => s.selectedProjectId);
 
   useEffect(() => {
     if (!accessToken) {
@@ -33,7 +36,7 @@ function RealtimeBridge() {
       return;
     }
 
-    realtimeClient.connect();
+    realtimeClient.connect(accessToken, orgId ?? undefined, selectedProjectId ?? undefined);
     const unsub = realtimeClient.subscribe((event) => {
       const { issueId, projectId } = extractIssuePayload(event);
 
@@ -80,7 +83,7 @@ function RealtimeBridge() {
       unsub();
       realtimeClient.disconnect();
     };
-  }, [accessToken, queryClient]);
+  }, [accessToken, orgId, selectedProjectId, queryClient]);
 
   return null;
 }

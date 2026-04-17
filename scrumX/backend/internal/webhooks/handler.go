@@ -1,6 +1,8 @@
 package webhooks
 
 import (
+	"strings"
+
 	"github.com/atharshah1/scrum/scrumX/backend/internal/events"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/utils"
@@ -55,19 +57,36 @@ func (h *Handler) list(c *fiber.Ctx) error {
 }
 
 func (h *Handler) incoming(c *fiber.Ctx) error {
+	orgID, ok := middleware.MustOrgID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
+	}
+	actorID, ok := middleware.MustUserID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusUnauthorized, "missing user context")
+	}
 	var payload struct {
-		OrgID string         `json:"org_id"`
+		OrgID *string        `json:"org_id,omitempty"`
 		Type  string         `json:"type"`
 		Data  map[string]any `json:"data"`
 	}
 	if err := c.BodyParser(&payload); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid payload")
 	}
-	orgID, err := uuid.Parse(payload.OrgID)
-	if err != nil {
-		return utils.JSONError(c, fiber.StatusBadRequest, "invalid org_id")
+	if payload.OrgID != nil && strings.TrimSpace(*payload.OrgID) != "" {
+		requestOrgID, err := uuid.Parse(strings.TrimSpace(*payload.OrgID))
+		if err != nil {
+			return utils.JSONError(c, fiber.StatusBadRequest, "invalid org_id")
+		}
+		if requestOrgID != orgID {
+			return utils.JSONError(c, fiber.StatusForbidden, "org_id does not match tenant context")
+		}
 	}
-	event := events.New(orgID, payload.Type, uuid.Nil, payload.Data)
+	payload.Type = strings.TrimSpace(payload.Type)
+	if payload.Type == "" {
+		return utils.JSONError(c, fiber.StatusBadRequest, "type is required")
+	}
+	event := events.New(orgID, payload.Type, actorID, payload.Data)
 	if err := h.bus.Publish(c.Context(), event); err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}

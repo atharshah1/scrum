@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/atharshah1/scrum/scrumX/backend/internal/notifications"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/organizations"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/projects"
+	"github.com/atharshah1/scrum/scrumX/backend/internal/rbac"
 	releasemodule "github.com/atharshah1/scrum/scrumX/backend/internal/release"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/sprints"
 	timetracking "github.com/atharshah1/scrum/scrumX/backend/internal/time"
@@ -36,6 +38,8 @@ import (
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/observability"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 func main() {
@@ -134,7 +138,39 @@ func main() {
 		return c.SendString(metrics.PrometheusText())
 	})
 	app.Get("/ws", websocket.New(func(conn *websocket.Conn) {
-		wsHub.Add(conn)
+		accessToken := strings.TrimSpace(conn.Query("token"))
+		if accessToken == "" {
+			_ = conn.Close()
+			return
+		}
+		parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+		token, err := parser.Parse(accessToken, func(token *jwt.Token) (any, error) {
+			return []byte(cfg.JWTSecret), nil
+		})
+		if err != nil || !token.Valid {
+			_ = conn.Close()
+			return
+		}
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			_ = conn.Close()
+			return
+		}
+		orgID, err := uuid.Parse(asString(claims["org_id"]))
+		if err != nil {
+			_ = conn.Close()
+			return
+		}
+		var projectID *uuid.UUID
+		if rawProjectID := strings.TrimSpace(conn.Query("project_id")); rawProjectID != "" {
+			id, parseErr := uuid.Parse(rawProjectID)
+			if parseErr != nil {
+				_ = conn.Close()
+				return
+			}
+			projectID = &id
+		}
+		wsHub.Add(conn, orgID, projectID)
 		defer wsHub.Remove(conn)
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {
@@ -159,20 +195,21 @@ func main() {
 		cfg.AIFromTextDailyQuota,
 		cfg.AIFromTextMaxChars,
 	).RegisterRoutes(secure)
-	organizations.NewHandler().RegisterRoutes(secure)
+	organizations.NewHandler(database, authzService).RegisterRoutes(secure)
 	users.NewHandler(database, authzService).RegisterRoutes(secure)
-	projects.NewHandler().RegisterRoutes(secure)
+	projects.NewHandler(database, authzService).RegisterRoutes(secure)
 	sprints.NewHandler(database, bus, authzService, sharedCache).RegisterRoutes(secure)
 	boards.NewHandler(database, authzService, sharedCache).RegisterRoutes(secure)
 	timetracking.NewHandler().RegisterRoutes(secure)
-	releasemodule.NewHandler().RegisterRoutes(secure)
-	itsm.NewHandler().RegisterRoutes(secure)
+	releasemodule.NewHandler(database, authzService).RegisterRoutes(secure)
+	itsm.NewHandler(database, authzService).RegisterRoutes(secure)
 	automation.NewHandler(automationStore, automationEngine).RegisterRoutes(secure)
 	webhooks.NewHandler(webhookDispatcher, bus).RegisterRoutes(secure)
-	integrations.NewHandler().RegisterRoutes(secure)
+	integrations.NewHandler(database, authzService).RegisterRoutes(secure)
 	insights.NewHandler(database).RegisterRoutes(secure)
 	workflows.NewHandler(database, authzService).RegisterRoutes(secure)
 	notifications.NewHandler(notifRepo).RegisterRoutes(secure)
+	rbac.NewHandler(database, authzService).RegisterRoutes(secure)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -193,4 +230,14 @@ func main() {
 
 	<-ctx.Done()
 	_ = app.Shutdown()
+}
+
+func asString(value any) string {
+	if value == nil {
+		return ""
+	}
+	if v, ok := value.(string); ok {
+		return v
+	}
+	return ""
 }
