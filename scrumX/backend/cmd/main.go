@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -152,6 +153,12 @@ func main() {
 	wsRoutes.Get("/", middleware.RateLimitMiddlewareWithKey(40, time.Minute, sharedCache.RedisClient(), func(c *fiber.Ctx) string {
 		return websocketRateLimitKey(c, cfg.JWTSecret)
 	}), websocket.New(func(conn *websocket.Conn) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Error("ws_panic_recovered", "panic", recovered, "remote_addr", conn.RemoteAddr().String())
+				_ = conn.Close()
+			}
+		}()
 		accessToken := extractWebsocketToken(conn)
 		if accessToken == "" {
 			log.Warn("ws_rejected", "reason", "missing_token", "remote_addr", conn.RemoteAddr().String())
@@ -170,6 +177,11 @@ func main() {
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
 			log.Warn("ws_rejected", "reason", "invalid_claims", "remote_addr", conn.RemoteAddr().String())
+			_ = conn.Close()
+			return
+		}
+		if tokenType := strings.TrimSpace(asString(claims["type"])); tokenType != "access" {
+			log.Warn("ws_rejected", "reason", "invalid_token_type", "token_type", tokenType, "remote_addr", conn.RemoteAddr().String())
 			_ = conn.Close()
 			return
 		}
@@ -294,9 +306,6 @@ func extractWebsocketToken(conn *websocket.Conn) string {
 	if token := strings.TrimSpace(conn.Query("access_token")); token != "" {
 		return token
 	}
-	if token := strings.TrimSpace(conn.Cookies("ws_access_token")); token != "" {
-		return token
-	}
 	authHeader := strings.TrimSpace(conn.Headers("Authorization"))
 	if authHeader == "" {
 		return ""
@@ -310,9 +319,6 @@ func extractWebsocketToken(conn *websocket.Conn) string {
 
 func extractWebsocketTokenFromContext(c *fiber.Ctx) string {
 	if token := strings.TrimSpace(c.Query("access_token")); token != "" {
-		return token
-	}
-	if token := strings.TrimSpace(c.Cookies("ws_access_token")); token != "" {
 		return token
 	}
 	authHeader := strings.TrimSpace(c.Get("Authorization"))
@@ -342,12 +348,15 @@ func websocketRateLimitKey(c *fiber.Ctx, jwtSecret string) string {
 	if !ok {
 		return "ws:ip:" + c.IP()
 	}
+	if tokenType := strings.TrimSpace(asString(claims["type"])); tokenType != "access" {
+		return "ws:ip:" + c.IP()
+	}
 	orgID := strings.TrimSpace(asString(claims["org_id"]))
 	userID := strings.TrimSpace(asString(claims["sub"]))
 	if orgID == "" || userID == "" {
 		return "ws:ip:" + c.IP()
 	}
-	return "ws:org:" + orgID + ":user:" + userID
+	return fmt.Sprintf("ws:%s:%s:%s", orgID, userID, c.IP())
 }
 
 func parseClaimsExpiry(claims jwt.MapClaims) (time.Time, error) {

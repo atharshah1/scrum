@@ -71,11 +71,7 @@ func (c *credentialCipher) Decrypt(raw []byte) ([]byte, []string, error) {
 		return nil, nil, err
 	}
 	if envelope.Ciphertext == "" || envelope.Nonce == "" || envelope.Algorithm == "" {
-		decoded := map[string]any{}
-		if err := json.Unmarshal(raw, &decoded); err != nil {
-			return nil, nil, err
-		}
-		return raw, mapKeys(decoded), nil
+		return nil, nil, errors.New("unencrypted credentials are not allowed")
 	}
 	if envelope.Algorithm != "AES-256-GCM" {
 		return nil, nil, errors.New("unsupported credential encryption algorithm")

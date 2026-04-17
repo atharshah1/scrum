@@ -34,6 +34,9 @@ func AuthMiddleware(jwtSecret string) fiber.Handler {
 		if !ok {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid claims"})
 		}
+		if tokenType := asString(claims["type"]); tokenType != "access" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token type"})
+		}
 
 		uid, err := uuid.Parse(asString(claims["sub"]))
 		if err != nil {

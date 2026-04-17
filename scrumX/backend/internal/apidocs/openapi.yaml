@@ -260,10 +260,10 @@ x-realtime:
   websocket:
     endpoint: /ws
     auth:
-      cookie: ws_access_token
       header: Authorization: Bearer <token>
+      query: access_token=<jwt>
       note: |
-        WebSocket access token is read from cookie `ws_access_token` or Authorization header.
+        WebSocket access token is read from Authorization header or `access_token` query parameter.
         Optional query parameter `project_id` scopes event stream to one project.
         Event envelope scope is canonical: use `scope.project_id`, `scope.resource_type`, and `scope.resource_id`
         for realtime filtering/cache updates instead of ad-hoc payload key extraction.

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -262,7 +263,7 @@ func testProviderConnectivity(ctx context.Context, provider string, credentials 
 		baseURL := strings.TrimSpace(asString(credentials["base_url"]))
 		email := strings.TrimSpace(asString(credentials["email"]))
 		apiToken := strings.TrimSpace(asString(credentials["api_token"]))
-		endpoint, err := buildProviderURL(baseURL, "/rest/api/3/myself")
+		endpoint, err := buildProviderURL(ctx, baseURL, "/rest/api/3/myself")
 		if err != nil {
 			return err
 		}
@@ -295,7 +296,7 @@ func testProviderConnectivity(ctx context.Context, provider string, credentials 
 	case "cicd", "deployments":
 		baseURL := strings.TrimSpace(asString(credentials["base_url"]))
 		token := strings.TrimSpace(asString(credentials["token"]))
-		endpoint, err := buildProviderURL(baseURL, "")
+		endpoint, err := buildProviderURL(ctx, baseURL, "")
 		if err != nil {
 			return err
 		}
@@ -310,13 +311,75 @@ func testProviderConnectivity(ctx context.Context, provider string, credentials 
 	}
 }
 
-func buildProviderURL(baseURL, suffix string) (string, error) {
+func buildProviderURL(ctx context.Context, baseURL, suffix string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return "", errors.New("invalid base_url")
 	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+	default:
+		return "", errors.New("base_url scheme is not allowed")
+	}
+	if err := validateProviderHost(ctx, parsed.Hostname()); err != nil {
+		return "", err
+	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/") + suffix
 	return parsed.String(), nil
+}
+
+func validateProviderHost(ctx context.Context, hostname string) error {
+	host := strings.ToLower(strings.TrimSpace(hostname))
+	if host == "" {
+		return errors.New("base_url host is required")
+	}
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return errors.New("base_url host is not allowed")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if isPrivateOrLocalIP(ip) {
+			return errors.New("base_url host must be publicly routable")
+		}
+		return nil
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupIPAddr(lookupCtx, host)
+	if err != nil || len(addrs) == 0 {
+		return errors.New("unable to resolve base_url host")
+	}
+	for _, addr := range addrs {
+		if isPrivateOrLocalIP(addr.IP) {
+			return errors.New("base_url host must not resolve to private or local addresses")
+		}
+	}
+	return nil
+}
+
+func isPrivateOrLocalIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	if v4 := ip.To4(); v4 != nil {
+		switch {
+		case v4[0] == 10:
+			return true
+		case v4[0] == 127:
+			return true
+		case v4[0] == 169 && v4[1] == 254:
+			return true
+		case v4[0] == 172 && v4[1] >= 16 && v4[1] <= 31:
+			return true
+		case v4[0] == 192 && v4[1] == 168:
+			return true
+		default:
+			return false
+		}
+	}
+	return len(ip) == net.IPv6len && (ip[0]&0xfe) == 0xfc
 }
 
 func doProviderRequest(client *http.Client, req *http.Request) error {
