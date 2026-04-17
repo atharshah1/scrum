@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -155,7 +156,7 @@ func main() {
 	}), websocket.New(func(conn *websocket.Conn) {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				log.Error("ws_panic_recovered", "panic", recovered, "remote_addr", conn.RemoteAddr().String())
+				log.Error("ws_panic_recovered", "panic", recovered, "stack", string(debug.Stack()), "remote_addr", conn.RemoteAddr().String())
 				_ = conn.Close()
 			}
 		}()

@@ -71,7 +71,7 @@ func (c *credentialCipher) Decrypt(raw []byte) ([]byte, []string, error) {
 		return nil, nil, err
 	}
 	if envelope.Ciphertext == "" || envelope.Nonce == "" || envelope.Algorithm == "" {
-		return nil, nil, errors.New("unencrypted credentials are not allowed")
+		return nil, nil, errors.New("invalid or corrupted credential envelope")
 	}
 	if envelope.Algorithm != "AES-256-GCM" {
 		return nil, nil, errors.New("unsupported credential encryption algorithm")

@@ -249,7 +249,7 @@ func asString(value any) string {
 }
 
 func testProviderConnectivity(ctx context.Context, provider string, credentials map[string]any) error {
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := newProviderHTTPClient()
 	switch provider {
 	case "github":
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user", nil)
@@ -333,7 +333,7 @@ func validateProviderHost(ctx context.Context, hostname string) error {
 	if host == "" {
 		return errors.New("base_url host is required")
 	}
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" || host == "::" || strings.HasSuffix(host, ".localhost") {
 		return errors.New("base_url host is not allowed")
 	}
 	if ip := net.ParseIP(host); ip != nil {
@@ -380,6 +380,33 @@ func isPrivateOrLocalIP(ip net.IP) bool {
 		}
 	}
 	return len(ip) == net.IPv6len && (ip[0]&0xfe) == 0xfc
+}
+
+func newProviderHTTPClient() *http.Client {
+	dialer := &net.Dialer{Timeout: 5 * time.Second}
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			conn, err := dialer.DialContext(ctx, network, address)
+			if err != nil {
+				return nil, err
+			}
+			host, _, splitErr := net.SplitHostPort(conn.RemoteAddr().String())
+			if splitErr != nil {
+				_ = conn.Close()
+				return nil, splitErr
+			}
+			if ip := net.ParseIP(host); isPrivateOrLocalIP(ip) {
+				_ = conn.Close()
+				return nil, errors.New("provider host resolved to private or local address")
+			}
+			return conn, nil
+		},
+	}
+	return &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: transport,
+	}
 }
 
 func doProviderRequest(client *http.Client, req *http.Request) error {
