@@ -1,9 +1,14 @@
 package integrations
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -192,6 +197,9 @@ func (h *Handler) testProvider(c *fiber.Ctx) error {
 	if err := validateProviderCredentials(provider, decoded); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
+	if err := testProviderConnectivity(c.Context(), provider, decoded); err != nil {
+		return utils.JSONError(c, fiber.StatusBadGateway, err.Error())
+	}
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{
 		"provider":        provider,
 		"configured":      true,
@@ -237,4 +245,97 @@ func asString(value any) string {
 		return v
 	}
 	return ""
+}
+
+func testProviderConnectivity(ctx context.Context, provider string, credentials map[string]any) error {
+	client := &http.Client{Timeout: 5 * time.Second}
+	switch provider {
+	case "github":
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user", nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(asString(credentials["token"])))
+		req.Header.Set("Accept", "application/vnd.github+json")
+		return doProviderRequest(client, req)
+	case "jira":
+		baseURL := strings.TrimSpace(asString(credentials["base_url"]))
+		email := strings.TrimSpace(asString(credentials["email"]))
+		apiToken := strings.TrimSpace(asString(credentials["api_token"]))
+		endpoint, err := buildProviderURL(baseURL, "/rest/api/3/myself")
+		if err != nil {
+			return err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return err
+		}
+		req.SetBasicAuth(email, apiToken)
+		return doProviderRequest(client, req)
+	case "slack":
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://slack.com/api/auth.test", strings.NewReader(""))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(asString(credentials["bot_token"])))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		respBody, err := doProviderRequestWithBody(client, req)
+		if err != nil {
+			return err
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(respBody, &decoded); err != nil {
+			return fmt.Errorf("slack auth response is invalid")
+		}
+		ok, _ := decoded["ok"].(bool)
+		if !ok {
+			return errors.New("slack auth.test rejected credentials")
+		}
+		return nil
+	case "cicd", "deployments":
+		baseURL := strings.TrimSpace(asString(credentials["base_url"]))
+		token := strings.TrimSpace(asString(credentials["token"]))
+		endpoint, err := buildProviderURL(baseURL, "")
+		if err != nil {
+			return err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		return doProviderRequest(client, req)
+	default:
+		return errors.New("unsupported integration provider")
+	}
+}
+
+func buildProviderURL(baseURL, suffix string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", errors.New("invalid base_url")
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + suffix
+	return parsed.String(), nil
+}
+
+func doProviderRequest(client *http.Client, req *http.Request) error {
+	_, err := doProviderRequestWithBody(client, req)
+	return err
+}
+
+func doProviderRequestWithBody(client *http.Client, req *http.Request) ([]byte, error) {
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if len(body) == 0 {
+			return nil, fmt.Errorf("provider returned status %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("provider returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return body, nil
 }

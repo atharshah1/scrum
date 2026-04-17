@@ -74,7 +74,7 @@ func Load() Config {
 		AIFromTextLimitPerMin: getEnvInt("AI_FROM_TEXT_LIMIT_PER_MIN", 10),
 		AIFromTextDailyQuota:  getEnvInt("AI_FROM_TEXT_DAILY_QUOTA", 200),
 		AIFromTextMaxChars:    getEnvInt("AI_FROM_TEXT_MAX_CHARS", 4000),
-		IntegrationCryptoKey:  getEnv("INTEGRATION_CREDENTIALS_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="),
+		IntegrationCryptoKey:  getEnv("INTEGRATION_CREDENTIALS_KEY", ""),
 	}
 }
 

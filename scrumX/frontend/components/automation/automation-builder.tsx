@@ -12,7 +12,7 @@ import { apiRequest } from '@/lib/api';
 import { qk } from '@/lib/query-keys';
 import type { AutomationRule } from '@/types';
 
-const triggers = ['issue.created', 'issue.updated', 'comment.added', 'sprint.updated'];
+const triggers = ['issue.created', 'issue.updated', 'comment.added', 'sprint.updated', 'incident.created', 'deployment.created', 'release.created'];
 
 type Condition = { field: string; op: string; value: string };
 type Action = { type: string; value: string };

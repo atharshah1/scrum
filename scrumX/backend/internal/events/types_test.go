@@ -30,10 +30,12 @@ func TestNew_NormalizesScopeFromPayload(t *testing.T) {
 
 func TestValidate_RejectsMissingResourceScope(t *testing.T) {
 	event := Event{
-		ID:    uuid.New(),
-		OrgID: uuid.New(),
-		Type:  "issue.created",
-		Scope: Scope{},
+		ID:      uuid.New(),
+		OrgID:   uuid.New(),
+		ActorID: uuid.New(),
+		Type:    "issue.created",
+		Payload: map[string]any{},
+		Scope:   Scope{},
 	}
 	if err := Validate(event); err == nil {
 		t.Fatal("expected validation error for missing resource scope")
@@ -42,9 +44,11 @@ func TestValidate_RejectsMissingResourceScope(t *testing.T) {
 
 func TestValidate_RejectsGenericFallbackResourceScope(t *testing.T) {
 	event := Event{
-		ID:    uuid.New(),
-		OrgID: uuid.New(),
-		Type:  "issue.created",
+		ID:      uuid.New(),
+		OrgID:   uuid.New(),
+		ActorID: uuid.New(),
+		Type:    "issue.created",
+		Payload: map[string]any{},
 		Scope: Scope{
 			ResourceType: "event",
 			ResourceID:   uuid.New(),
@@ -52,5 +56,23 @@ func TestValidate_RejectsGenericFallbackResourceScope(t *testing.T) {
 	}
 	if err := Validate(event); err == nil {
 		t.Fatal("expected validation error for generic fallback scope")
+	}
+}
+
+func TestValidate_RejectsMissingActor(t *testing.T) {
+	event := Event{
+		ID:    uuid.New(),
+		OrgID: uuid.New(),
+		Type:  "issue.created",
+		Payload: map[string]any{
+			"issue_id": uuid.NewString(),
+		},
+		Scope: Scope{
+			ResourceType: "issue",
+			ResourceID:   uuid.New(),
+		},
+	}
+	if err := Validate(event); err == nil {
+		t.Fatal("expected validation error for missing actor")
 	}
 }

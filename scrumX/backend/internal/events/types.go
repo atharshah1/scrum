@@ -80,8 +80,17 @@ func Validate(event Event) error {
 	if event.OrgID == uuid.Nil {
 		return errors.New("org_id is required")
 	}
-	if event.Type == "" {
+	if event.ActorID == uuid.Nil {
+		return errors.New("actor_id is required")
+	}
+	if strings.TrimSpace(event.Type) == "" {
 		return errors.New("type is required")
+	}
+	if event.Payload == nil {
+		return errors.New("payload is required")
+	}
+	if _, err := json.Marshal(event.Payload); err != nil {
+		return fmt.Errorf("payload is invalid: %w", err)
 	}
 	if strings.TrimSpace(event.Scope.ResourceType) == "" {
 		return errors.New("scope.resource_type is required")
@@ -91,6 +100,11 @@ func Validate(event Event) error {
 	}
 	if event.Scope.ResourceID == uuid.Nil {
 		return errors.New("scope.resource_id is required")
+	}
+	if event.Scope.ProjectID != nil {
+		if payloadProjectID, ok := parseUUID(event.Payload["project_id"]); ok && payloadProjectID != *event.Scope.ProjectID {
+			return errors.New("scope.project_id must match payload.project_id")
+		}
 	}
 	return nil
 }

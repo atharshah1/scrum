@@ -47,6 +47,10 @@ import (
 func main() {
 	cfg := configs.Load()
 	log := logger.New()
+	if strings.TrimSpace(cfg.IntegrationCryptoKey) == "" {
+		log.Error("missing_required_config", "name", "INTEGRATION_CREDENTIALS_KEY")
+		os.Exit(1)
+	}
 
 	database, err := db.NewPostgres(cfg.DatabaseURL)
 	if err != nil {
@@ -287,6 +291,9 @@ func asString(value any) string {
 }
 
 func extractWebsocketToken(conn *websocket.Conn) string {
+	if token := strings.TrimSpace(conn.Query("access_token")); token != "" {
+		return token
+	}
 	if token := strings.TrimSpace(conn.Cookies("ws_access_token")); token != "" {
 		return token
 	}
@@ -302,6 +309,9 @@ func extractWebsocketToken(conn *websocket.Conn) string {
 }
 
 func extractWebsocketTokenFromContext(c *fiber.Ctx) string {
+	if token := strings.TrimSpace(c.Query("access_token")); token != "" {
+		return token
+	}
 	if token := strings.TrimSpace(c.Cookies("ws_access_token")); token != "" {
 		return token
 	}

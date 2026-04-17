@@ -8,10 +8,11 @@ class RealtimeClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldReconnect = false;
   private targetEndpoint: string | null = null;
+  private accessToken: string | null = null;
 
   connect(accessToken: string, projectId?: string) {
     if (typeof window === 'undefined' || !accessToken) return;
-    document.cookie = `ws_access_token=${encodeURIComponent(accessToken)}; Path=/; SameSite=Lax`;
+    this.accessToken = accessToken;
     this.shouldReconnect = true;
     const fallback = (() => {
       const rawApi = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080/api/v1';
@@ -27,6 +28,7 @@ class RealtimeClient {
       }
     })();
     const endpoint = new URL(process.env.NEXT_PUBLIC_WS_URL ?? fallback);
+    endpoint.searchParams.set('access_token', accessToken);
     if (projectId) {
       endpoint.searchParams.set('project_id', projectId);
     } else {
@@ -68,9 +70,7 @@ class RealtimeClient {
 
   disconnect() {
     this.shouldReconnect = false;
-    if (typeof window !== 'undefined') {
-      document.cookie = 'ws_access_token=; Max-Age=0; Path=/; SameSite=Lax';
-    }
+    this.accessToken = null;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

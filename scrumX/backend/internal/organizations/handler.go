@@ -66,17 +66,9 @@ ORDER BY o.created_at DESC`, actorID)
 }
 
 func (h *Handler) create(c *fiber.Ctx) error {
-	currentOrgID, ok := middleware.MustOrgID(c)
-	if !ok {
-		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
-	}
 	actorID, ok := middleware.MustUserID(c)
 	if !ok {
 		return utils.JSONError(c, fiber.StatusUnauthorized, "missing user context")
-	}
-	role, err := h.authz.RequireOrgMember(c.Context(), currentOrgID, actorID)
-	if err != nil || role != authz.RoleAdmin {
-		return utils.JSONError(c, fiber.StatusForbidden, "forbidden")
 	}
 	var payload struct {
 		Name string `json:"name"`
