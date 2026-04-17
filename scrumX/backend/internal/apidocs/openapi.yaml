@@ -60,6 +60,40 @@ components:
         payload:
           type: object
           additionalProperties: true
+    RealtimeEvent:
+      type: object
+      required: [id, org_id, type, actor_id, scope, payload, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        actor_id:
+          type: string
+          format: uuid
+        scope:
+          type: object
+          required: [resource_type, resource_id]
+          properties:
+            project_id:
+              type: string
+              format: uuid
+            resource_type:
+              type: string
+              example: issue
+            resource_id:
+              type: string
+              format: uuid
+        payload:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
 security:
   - bearerAuth: []
     orgHeader: []
@@ -227,6 +261,9 @@ x-realtime:
     endpoint: /ws
     auth:
       cookie: ws_access_token
+      header: Authorization: Bearer <token>
       note: |
-        WebSocket access token is read from cookie `ws_access_token`.
-        Optional query parameter `project_id` scopes events to a project.
+        WebSocket access token is read from cookie `ws_access_token` or Authorization header.
+        Optional query parameter `project_id` scopes event stream to one project.
+        Event envelope scope is canonical: use `scope.project_id`, `scope.resource_type`, and `scope.resource_id`
+        for realtime filtering/cache updates instead of ad-hoc payload key extraction.

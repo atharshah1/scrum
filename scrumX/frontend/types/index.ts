@@ -160,6 +160,8 @@ export type ScrumEvent = {
   actor_id: string;
   scope?: {
     project_id?: string;
+    resource_type?: string;
+    resource_id?: string;
   };
   payload: Record<string, unknown>;
   created_at: string;

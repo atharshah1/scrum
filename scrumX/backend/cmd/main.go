@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
@@ -144,11 +145,13 @@ func main() {
 		c.Set("Content-Type", "text/plain; version=0.0.4")
 		return c.SendString(metrics.PrometheusText())
 	})
-	wsRoutes := app.Group("/ws", middleware.RateLimitMiddleware(40, time.Minute, sharedCache.RedisClient()))
-	wsRoutes.Get("/", websocket.New(func(conn *websocket.Conn) {
+	wsRoutes := app.Group("/ws")
+	wsRoutes.Get("/", middleware.RateLimitMiddlewareWithKey(40, time.Minute, sharedCache.RedisClient(), func(c *fiber.Ctx) string {
+		return websocketRateLimitKey(c, cfg.JWTSecret)
+	}), websocket.New(func(conn *websocket.Conn) {
 		accessToken := extractWebsocketToken(conn)
 		if accessToken == "" {
-			log.Warn("ws_rejected", "reason", "missing token")
+			log.Warn("ws_rejected", "reason", "missing_token", "remote_addr", conn.RemoteAddr().String())
 			_ = conn.Close()
 			return
 		}
@@ -157,36 +160,36 @@ func main() {
 			return []byte(cfg.JWTSecret), nil
 		})
 		if err != nil || !token.Valid {
-			log.Warn("ws_rejected", "reason", "invalid token", "error", err)
+			log.Warn("ws_rejected", "reason", "invalid_token", "error", err, "remote_addr", conn.RemoteAddr().String())
 			_ = conn.Close()
 			return
 		}
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
-			log.Warn("ws_rejected", "reason", "invalid claims")
+			log.Warn("ws_rejected", "reason", "invalid_claims", "remote_addr", conn.RemoteAddr().String())
 			_ = conn.Close()
 			return
 		}
 		orgID, err := uuid.Parse(asString(claims["org_id"]))
 		if err != nil {
-			log.Warn("ws_rejected", "reason", "invalid org claim", "error", err)
+			log.Warn("ws_rejected", "reason", "invalid_org_claim", "error", err, "remote_addr", conn.RemoteAddr().String())
 			_ = conn.Close()
 			return
 		}
 		userID, err := uuid.Parse(asString(claims["sub"]))
 		if err != nil {
-			log.Warn("ws_rejected", "reason", "invalid sub claim", "error", err)
+			log.Warn("ws_rejected", "reason", "invalid_sub_claim", "error", err, "org_id", orgID, "remote_addr", conn.RemoteAddr().String())
 			_ = conn.Close()
 			return
 		}
 		expiry, err := parseClaimsExpiry(claims)
 		if err != nil {
-			log.Warn("ws_rejected", "reason", "invalid exp claim", "error", err)
+			log.Warn("ws_rejected", "reason", "invalid_exp_claim", "error", err, "org_id", orgID, "user_id", userID, "remote_addr", conn.RemoteAddr().String())
 			_ = conn.Close()
 			return
 		}
 		if !time.Now().Before(expiry) {
-			log.Warn("ws_rejected", "reason", "token expired")
+			log.Warn("ws_rejected", "reason", "token_expired", "org_id", orgID, "user_id", userID, "remote_addr", conn.RemoteAddr().String())
 			_ = conn.Close()
 			return
 		}
@@ -194,25 +197,33 @@ func main() {
 		if projectIDParam := strings.TrimSpace(conn.Query("project_id")); projectIDParam != "" {
 			id, parseErr := uuid.Parse(projectIDParam)
 			if parseErr != nil {
-				log.Warn("ws_rejected", "reason", "invalid project filter", "error", parseErr)
+				log.Warn("ws_rejected", "reason", "invalid_project_filter", "error", parseErr, "org_id", orgID, "user_id", userID, "remote_addr", conn.RemoteAddr().String())
 				_ = conn.Close()
 				return
 			}
 			projectID = &id
 		}
 		if err := wsHub.Add(conn, orgID, userID, projectID); err != nil {
-			log.Warn("ws_rejected", "reason", "capacity limit", "error", err)
+			log.Warn("ws_rejected", "reason", "capacity_limit", "error", err, "org_id", orgID, "user_id", userID, "remote_addr", conn.RemoteAddr().String())
 			_ = conn.Close()
 			return
 		}
+		log.Info("ws_connected", "org_id", orgID, "user_id", userID, "project_id", projectID, "expires_at", expiry, "remote_addr", conn.RemoteAddr().String())
 		defer wsHub.Remove(conn)
 		timer := time.AfterFunc(time.Until(expiry), func() {
+			expiryNotice, _ := json.Marshal(fiber.Map{
+				"type":   "auth.expired",
+				"reason": "token_expired",
+				"reauth": true,
+			})
+			_ = conn.WriteMessage(websocket.TextMessage, expiryNotice)
 			// Close is intentionally best-effort; connection may already be closed.
 			_ = conn.Close()
 		})
 		defer timer.Stop()
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {
+				log.Info("ws_disconnected", "org_id", orgID, "user_id", userID, "project_id", projectID, "remote_addr", conn.RemoteAddr().String(), "error", err)
 				return
 			}
 		}
@@ -294,6 +305,45 @@ func extractWebsocketToken(conn *websocket.Conn) string {
 		return ""
 	}
 	return strings.TrimSpace(parts[1])
+}
+
+func extractWebsocketTokenFromContext(c *fiber.Ctx) string {
+	if token := strings.TrimSpace(c.Cookies("ws_access_token")); token != "" {
+		return token
+	}
+	authHeader := strings.TrimSpace(c.Get("Authorization"))
+	if authHeader == "" {
+		return ""
+	}
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
+}
+
+func websocketRateLimitKey(c *fiber.Ctx, jwtSecret string) string {
+	tokenValue := extractWebsocketTokenFromContext(c)
+	if tokenValue == "" {
+		return "ws:ip:" + c.IP()
+	}
+	parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+	token, err := parser.Parse(tokenValue, func(token *jwt.Token) (any, error) {
+		return []byte(jwtSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return "ws:ip:" + c.IP()
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "ws:ip:" + c.IP()
+	}
+	orgID := strings.TrimSpace(asString(claims["org_id"]))
+	userID := strings.TrimSpace(asString(claims["sub"]))
+	if orgID == "" || userID == "" {
+		return "ws:ip:" + c.IP()
+	}
+	return "ws:org:" + orgID + ":user:" + userID
 }
 
 func parseClaimsExpiry(claims jwt.MapClaims) (time.Time, error) {

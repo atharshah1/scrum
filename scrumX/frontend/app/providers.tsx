@@ -11,19 +11,15 @@ import { useAuthStore } from '@/store/useAuthStore';
 import type { Board, ScrumEvent } from '@/types';
 
 function extractIssuePayload(event: ScrumEvent): { issueId?: string; projectId?: string } {
-  const payload = event.payload as Record<string, unknown>;
   const scope = event.scope as Record<string, unknown> | undefined;
-  const issue = payload.issue as Record<string, unknown> | undefined;
   return {
-    issueId: typeof issue?.id === 'string' ? issue.id : typeof payload.issue_id === 'string' ? payload.issue_id : undefined,
-    projectId:
-      typeof scope?.project_id === 'string'
-        ? scope.project_id
-        : typeof issue?.project_id === 'string'
-        ? issue.project_id
-        : typeof payload.project_id === 'string'
-          ? payload.project_id
-          : undefined
+    issueId:
+      typeof scope?.resource_type === 'string' &&
+      scope.resource_type === 'issue' &&
+      typeof scope.resource_id === 'string'
+        ? scope.resource_id
+        : undefined,
+    projectId: typeof scope?.project_id === 'string' ? scope.project_id : undefined
   };
 }
 

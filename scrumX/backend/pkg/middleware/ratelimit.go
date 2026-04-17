@@ -16,7 +16,13 @@ type rateLimitEntry struct {
 	resetAt time.Time
 }
 
+type RateLimitKeyFunc func(c *fiber.Ctx) string
+
 func RateLimitMiddleware(limit int, window time.Duration, redisClient *redis.Client) fiber.Handler {
+	return RateLimitMiddlewareWithKey(limit, window, redisClient, nil)
+}
+
+func RateLimitMiddlewareWithKey(limit int, window time.Duration, redisClient *redis.Client, keyFn RateLimitKeyFunc) fiber.Handler {
 	var (
 		mu          sync.Mutex
 		entries     = map[string]rateLimitEntry{}
@@ -69,7 +75,7 @@ func RateLimitMiddleware(limit int, window time.Duration, redisClient *redis.Cli
 		if limit <= 0 || window <= 0 {
 			return c.Next()
 		}
-		key := c.IP() + ":" + c.Route().Path
+		key := deriveRateLimitKey(c, keyFn)
 		now := time.Now()
 		count, resetAt, remote := redisEval(key, now)
 		if !remote {
@@ -86,7 +92,7 @@ func RateLimitMiddleware(limit int, window time.Duration, redisClient *redis.Cli
 		if count > limit {
 			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 				"success": false,
-				"error": fiber.Map{"message": "rate limit exceeded"},
+				"error":   fiber.Map{"message": "rate limit exceeded"},
 			})
 		}
 		return c.Next()
@@ -95,4 +101,20 @@ func RateLimitMiddleware(limit int, window time.Duration, redisClient *redis.Cli
 
 func itoa(v int) string {
 	return strconv.Itoa(v)
+}
+
+func deriveRateLimitKey(c *fiber.Ctx, keyFn RateLimitKeyFunc) string {
+	if keyFn != nil {
+		if key := keyFn(c); key != "" {
+			return key
+		}
+	}
+	base := c.Route().Path
+	if orgID, ok := MustOrgID(c); ok {
+		if userID, userOK := MustUserID(c); userOK {
+			return fmt.Sprintf("org:%s:user:%s:route:%s", orgID, userID, base)
+		}
+		return fmt.Sprintf("org:%s:ip:%s:route:%s", orgID, c.IP(), base)
+	}
+	return c.IP() + ":" + base
 }
