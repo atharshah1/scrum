@@ -112,7 +112,7 @@ func (h *Handler) incoming(c *fiber.Ctx) error {
 
 func (h *Handler) validateEventReferences(ctx context.Context, orgID uuid.UUID, event events.Event) error {
 	if h.db == nil {
-		return errors.New("event validation unavailable")
+		return errors.New("database connection required for event validation")
 	}
 	projectID := uuid.Nil
 	hasProject := event.Scope.ProjectID != nil && *event.Scope.ProjectID != uuid.Nil
