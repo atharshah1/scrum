@@ -56,15 +56,11 @@ func New(orgID uuid.UUID, eventType string, actorID uuid.UUID, payload map[strin
 	}
 	eventID := uuid.New()
 	event := Event{
-		ID:      eventID,
-		OrgID:   orgID,
-		Type:    eventType,
-		ActorID: actorID,
-		Payload: payload,
-		Scope: Scope{
-			ResourceType: "event",
-			ResourceID:   eventID,
-		},
+		ID:        eventID,
+		OrgID:     orgID,
+		Type:      eventType,
+		ActorID:   actorID,
+		Payload:   payload,
 		CreatedAt: time.Now().UTC(),
 	}
 	normalizeScopeFromPayload(&event)

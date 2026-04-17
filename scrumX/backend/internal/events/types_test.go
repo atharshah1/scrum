@@ -28,6 +28,16 @@ func TestNew_NormalizesScopeFromPayload(t *testing.T) {
 	}
 }
 
+func TestNew_DoesNotApplyGenericFallbackScope(t *testing.T) {
+	event := New(uuid.New(), "custom.event", uuid.New(), map[string]any{})
+	if event.Scope.ResourceType != "" {
+		t.Fatalf("expected empty resource type by default, got %q", event.Scope.ResourceType)
+	}
+	if event.Scope.ResourceID != uuid.Nil {
+		t.Fatalf("expected empty resource id by default, got %s", event.Scope.ResourceID)
+	}
+}
+
 func TestValidate_RejectsMissingResourceScope(t *testing.T) {
 	event := Event{
 		ID:      uuid.New(),
