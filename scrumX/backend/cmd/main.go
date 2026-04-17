@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
@@ -211,12 +210,7 @@ func main() {
 		log.Info("ws_connected", "org_id", orgID, "user_id", userID, "project_id", projectID, "expires_at", expiry, "remote_addr", conn.RemoteAddr().String())
 		defer wsHub.Remove(conn)
 		timer := time.AfterFunc(time.Until(expiry), func() {
-			expiryNotice, _ := json.Marshal(fiber.Map{
-				"type":   "auth.expired",
-				"reason": "token_expired",
-				"reauth": true,
-			})
-			_ = conn.WriteMessage(websocket.TextMessage, expiryNotice)
+			log.Info("ws_disconnected", "reason", "token_expired", "org_id", orgID, "user_id", userID, "project_id", projectID, "remote_addr", conn.RemoteAddr().String())
 			// Close is intentionally best-effort; connection may already be closed.
 			_ = conn.Close()
 		})

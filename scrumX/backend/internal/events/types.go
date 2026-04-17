@@ -54,19 +54,19 @@ func New(orgID uuid.UUID, eventType string, actorID uuid.UUID, payload map[strin
 	if payload == nil {
 		payload = map[string]any{}
 	}
+	eventID := uuid.New()
 	event := Event{
-		ID:      uuid.New(),
+		ID:      eventID,
 		OrgID:   orgID,
 		Type:    eventType,
 		ActorID: actorID,
 		Payload: payload,
 		Scope: Scope{
 			ResourceType: "event",
-			ResourceID:   uuid.New(),
+			ResourceID:   eventID,
 		},
 		CreatedAt: time.Now().UTC(),
 	}
-	event.Scope.ResourceID = event.ID
 	normalizeScopeFromPayload(&event)
 	for _, option := range options {
 		if option != nil {
