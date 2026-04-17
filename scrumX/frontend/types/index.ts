@@ -158,6 +158,9 @@ export type ScrumEvent = {
   org_id: string;
   type: string;
   actor_id: string;
+  scope?: {
+    project_id?: string;
+  };
   payload: Record<string, unknown>;
   created_at: string;
 };

@@ -3,6 +3,7 @@ package integrations
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -14,12 +15,17 @@ import (
 )
 
 type Handler struct {
-	db    *sql.DB
-	authz *authz.Service
+	db     *sql.DB
+	authz  *authz.Service
+	crypto *credentialCipher
 }
 
-func NewHandler(db *sql.DB, authzService *authz.Service) *Handler {
-	return &Handler{db: db, authz: authzService}
+func NewHandler(db *sql.DB, authzService *authz.Service, encryptionKey string) (*Handler, error) {
+	crypto, err := newCredentialCipher(encryptionKey)
+	if err != nil {
+		return nil, err
+	}
+	return &Handler{db: db, authz: authzService, crypto: crypto}, nil
 }
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
@@ -30,6 +36,7 @@ func (h *Handler) RegisterRoutes(api fiber.Router) {
 	r.Post("/slack", h.upsertSlack)
 	r.Post("/cicd", h.upsertCICD)
 	r.Post("/deployments", h.upsertDeployments)
+	r.Post("/:provider/test", h.testProvider)
 }
 
 func (h *Handler) list(c *fiber.Ctx) error {
@@ -63,7 +70,10 @@ ORDER BY provider, created_at DESC`, orgID)
 		if err := rows.Scan(&id, &provider, &credentialsRaw, &createdAt); err != nil {
 			return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 		}
-		keys := credentialKeys(credentialsRaw)
+		_, keys, err := h.crypto.Decrypt(credentialsRaw)
+		if err != nil {
+			return utils.JSONError(c, fiber.StatusInternalServerError, "unable to decrypt stored credentials")
+		}
 		out = append(out, fiber.Map{
 			"id":              id,
 			"provider":        provider,
@@ -100,44 +110,131 @@ func (h *Handler) upsertProvider(c *fiber.Ctx, provider string) error {
 	if err := c.BodyParser(&payload); err != nil || payload.Credentials == nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "credentials are required")
 	}
+	if err := validateProviderCredentials(provider, payload.Credentials); err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	keys := mapKeys(payload.Credentials)
 	credentialsRaw, err := json.Marshal(payload.Credentials)
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid credentials")
 	}
+	encryptedCredentials, err := h.crypto.Encrypt(credentialsRaw, keys)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, "failed to encrypt credentials")
+	}
+	tx, err := h.db.BeginTx(c.Context(), nil)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	defer tx.Rollback()
 	var integrationID uuid.UUID
-	err = h.db.QueryRowContext(c.Context(), `SELECT id FROM integrations WHERE org_id=$1 AND provider=$2 ORDER BY created_at DESC LIMIT 1`,
+	err = tx.QueryRowContext(c.Context(), `SELECT id FROM integrations WHERE org_id=$1 AND provider=$2 ORDER BY created_at DESC LIMIT 1`,
 		orgID, provider).Scan(&integrationID)
 	switch err {
 	case nil:
-		if _, err := h.db.ExecContext(c.Context(), `UPDATE integrations SET credentials=$3 WHERE id=$1 AND org_id=$2`,
-			integrationID, orgID, credentialsRaw); err != nil {
+		if _, err := tx.ExecContext(c.Context(), `UPDATE integrations SET credentials=$3 WHERE id=$1 AND org_id=$2`,
+			integrationID, orgID, encryptedCredentials); err != nil {
 			return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 		}
 	case sql.ErrNoRows:
 		integrationID = uuid.New()
-		if _, err := h.db.ExecContext(c.Context(), `INSERT INTO integrations (id, org_id, provider, credentials) VALUES ($1,$2,$3,$4)`,
-			integrationID, orgID, provider, credentialsRaw); err != nil {
+		if _, err := tx.ExecContext(c.Context(), `INSERT INTO integrations (id, org_id, provider, credentials) VALUES ($1,$2,$3,$4)`,
+			integrationID, orgID, provider, encryptedCredentials); err != nil {
 			return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 		}
 	default:
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	if err := tx.Commit(); err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{
 		"id":              integrationID,
 		"provider":        provider,
 		"configured":      true,
-		"credential_keys": credentialKeys(credentialsRaw),
+		"credential_keys": keys,
 	})
 }
 
-func credentialKeys(raw []byte) []string {
-	decoded := map[string]any{}
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return []string{}
+func (h *Handler) testProvider(c *fiber.Ctx) error {
+	orgID, ok := middleware.MustOrgID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusBadRequest, "missing org context")
 	}
+	userID, ok := middleware.MustUserID(c)
+	if !ok {
+		return utils.JSONError(c, fiber.StatusUnauthorized, "missing user context")
+	}
+	role, err := h.authz.RequireOrgMember(c.Context(), orgID, userID)
+	if err != nil || !authz.CanWrite(role) {
+		return utils.JSONError(c, fiber.StatusForbidden, "forbidden")
+	}
+	provider := strings.ToLower(strings.TrimSpace(c.Params("provider")))
+	if provider == "" {
+		return utils.JSONError(c, fiber.StatusBadRequest, "provider is required")
+	}
+	var credentialsRaw []byte
+	if err := h.db.QueryRowContext(c.Context(), `SELECT credentials FROM integrations WHERE org_id=$1 AND provider=$2 ORDER BY created_at DESC LIMIT 1`,
+		orgID, provider).Scan(&credentialsRaw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return utils.JSONError(c, fiber.StatusNotFound, "integration is not configured")
+		}
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	decrypted, keys, err := h.crypto.Decrypt(credentialsRaw)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, "unable to decrypt credentials")
+	}
+	decoded := map[string]any{}
+	if err := json.Unmarshal(decrypted, &decoded); err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, "stored credentials are invalid")
+	}
+	if err := validateProviderCredentials(provider, decoded); err != nil {
+		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
+	}
+	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{
+		"provider":        provider,
+		"configured":      true,
+		"credential_keys": keys,
+		"tested_at":       time.Now().UTC(),
+	})
+}
+
+func mapKeys(decoded map[string]any) []string {
 	keys := make([]string, 0, len(decoded))
 	for k := range decoded {
 		keys = append(keys, strings.TrimSpace(k))
 	}
 	return keys
+}
+
+func validateProviderCredentials(provider string, credentials map[string]any) error {
+	requiredByProvider := map[string][]string{
+		"github":      {"token"},
+		"jira":        {"base_url", "email", "api_token"},
+		"slack":       {"bot_token"},
+		"cicd":        {"base_url", "token"},
+		"deployments": {"base_url", "token"},
+	}
+	required, ok := requiredByProvider[provider]
+	if !ok {
+		return errors.New("unsupported integration provider")
+	}
+	for _, field := range required {
+		raw, exists := credentials[field]
+		if !exists || strings.TrimSpace(asString(raw)) == "" {
+			return errors.New("missing required credential: " + field)
+		}
+	}
+	return nil
+}
+
+func asString(value any) string {
+	if value == nil {
+		return ""
+	}
+	if v, ok := value.(string); ok {
+		return v
+	}
+	return ""
 }

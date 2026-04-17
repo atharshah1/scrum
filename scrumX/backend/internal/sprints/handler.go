@@ -66,7 +66,7 @@ func (h *Handler) create(c *fiber.Ctx) error {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
 	sprint := fiber.Map{"id": id, "org_id": orgID, "board_id": payload.BoardID, "name": payload.Name, "status": "planned", "start_at": payload.StartAt, "end_at": payload.EndAt}
-	_ = h.bus.Publish(c.Context(), events.New(orgID, "sprint.created", actorID, map[string]any{"sprint": sprint}))
+	_ = h.bus.Publish(c.Context(), events.New(orgID, "sprint.created", actorID, map[string]any{"sprint": sprint}, events.WithProjectID(projectID)))
 	h.invalidateProjectCaches(orgID, projectID)
 	return utils.JSONSuccess(c, fiber.StatusCreated, sprint)
 }
@@ -105,7 +105,7 @@ AND NOT EXISTS (
 	if rows, _ := result.RowsAffected(); rows == 0 {
 		return utils.JSONError(c, fiber.StatusBadRequest, "sprint not found or cannot be started")
 	}
-	_ = h.bus.Publish(c.Context(), events.New(orgID, "sprint.started", actorID, map[string]any{"sprint_id": sprintID}))
+	_ = h.bus.Publish(c.Context(), events.New(orgID, "sprint.started", actorID, map[string]any{"sprint_id": sprintID}, events.WithProjectID(projectID)))
 	h.invalidateProjectCaches(orgID, projectID)
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{"id": sprintID, "status": "active"})
 }
@@ -160,7 +160,7 @@ func (h *Handler) end(c *fiber.Ctx) error {
 	if err := tx.Commit(); err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	_ = h.bus.Publish(c.Context(), events.New(orgID, "sprint.completed", actorID, map[string]any{"sprint_id": sprintID, "next_sprint_id": nextSprintID}))
+	_ = h.bus.Publish(c.Context(), events.New(orgID, "sprint.completed", actorID, map[string]any{"sprint_id": sprintID, "next_sprint_id": nextSprintID}, events.WithProjectID(projectID)))
 	h.invalidateProjectCaches(orgID, projectID)
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{"id": sprintID, "status": "completed", "next_sprint_id": nextSprintID})
 }
@@ -208,7 +208,7 @@ WHERE org_id=$2 AND project_id=$3 AND deleted_at IS NULL AND id IN (` + strings.
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	for _, issueID := range payload.IssueIDs {
-		_ = h.bus.Publish(c.Context(), events.New(orgID, "issue.moved_to_sprint", actorID, map[string]any{"issue_id": issueID, "sprint_id": sprintID}))
+		_ = h.bus.Publish(c.Context(), events.New(orgID, "issue.moved_to_sprint", actorID, map[string]any{"issue_id": issueID, "sprint_id": sprintID}, events.WithProjectID(projectID)))
 	}
 	h.invalidateProjectCaches(orgID, projectID)
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{"sprint_id": sprintID, "updated_issues": len(payload.IssueIDs)})
@@ -250,7 +250,7 @@ WHERE org_id=$1 AND project_id=$2 AND sprint_id=$3 AND deleted_at IS NULL AND id
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	for _, issueID := range payload.IssueIDs {
-		_ = h.bus.Publish(c.Context(), events.New(orgID, "issue.removed_from_sprint", actorID, map[string]any{"issue_id": issueID, "sprint_id": sprintID}))
+		_ = h.bus.Publish(c.Context(), events.New(orgID, "issue.removed_from_sprint", actorID, map[string]any{"issue_id": issueID, "sprint_id": sprintID}, events.WithProjectID(projectID)))
 	}
 	h.invalidateProjectCaches(orgID, projectID)
 	return utils.JSONSuccess(c, fiber.StatusOK, fiber.Map{"sprint_id": sprintID, "updated_issues": len(payload.IssueIDs)})

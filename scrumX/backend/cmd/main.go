@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -68,7 +70,7 @@ func main() {
 	if kafkaPublisher != nil {
 		defer kafkaPublisher.Close()
 	}
-	wsHub := events.NewWebsocketHub(log, cfg.WebsocketBufferSize)
+	wsHub := events.NewWebsocketHub(log, cfg.WebsocketBufferSize, cfg.WebsocketMaxPerOrg, cfg.WebsocketMaxPerUser)
 	bus.Subscribe("*", wsHub.Broadcast)
 
 	sharedCache := cache.NewTTLCache(cfg.CacheTTL)
@@ -100,6 +102,11 @@ func main() {
 
 	authService := auth.NewService(database, cfg.JWTSecret, cfg.JWTRefreshSecret)
 	authHandler := auth.NewHandler(authService, cfg.JWTSecret, cfg.JWTRefreshSecret, sharedCache.RedisClient())
+	integrationsHandler, err := integrations.NewHandler(database, authzService, cfg.IntegrationCryptoKey)
+	if err != nil {
+		log.Error("integrations_handler_failed", "error", err)
+		os.Exit(1)
+	}
 
 	app := fiber.New(fiber.Config{BodyLimit: 1024 * 1024})
 	app.Use(middleware.LoggingMiddleware(log))
@@ -137,8 +144,9 @@ func main() {
 		c.Set("Content-Type", "text/plain; version=0.0.4")
 		return c.SendString(metrics.PrometheusText())
 	})
-	app.Get("/ws", websocket.New(func(conn *websocket.Conn) {
-		accessToken := strings.TrimSpace(conn.Query("token"))
+	wsRoutes := app.Group("/ws", middleware.RateLimitMiddleware(40, time.Minute, sharedCache.RedisClient()))
+	wsRoutes.Get("/", websocket.New(func(conn *websocket.Conn) {
+		accessToken := extractWebsocketToken(conn)
 		if accessToken == "" {
 			log.Warn("ws_rejected", "reason", "missing token")
 			_ = conn.Close()
@@ -165,6 +173,23 @@ func main() {
 			_ = conn.Close()
 			return
 		}
+		userID, err := uuid.Parse(asString(claims["sub"]))
+		if err != nil {
+			log.Warn("ws_rejected", "reason", "invalid sub claim", "error", err)
+			_ = conn.Close()
+			return
+		}
+		expiry, err := parseClaimsExpiry(claims)
+		if err != nil {
+			log.Warn("ws_rejected", "reason", "invalid exp claim", "error", err)
+			_ = conn.Close()
+			return
+		}
+		if !time.Now().Before(expiry) {
+			log.Warn("ws_rejected", "reason", "token expired")
+			_ = conn.Close()
+			return
+		}
 		var projectID *uuid.UUID
 		if projectIDParam := strings.TrimSpace(conn.Query("project_id")); projectIDParam != "" {
 			id, parseErr := uuid.Parse(projectIDParam)
@@ -175,8 +200,16 @@ func main() {
 			}
 			projectID = &id
 		}
-		wsHub.Add(conn, orgID, projectID)
+		if err := wsHub.Add(conn, orgID, userID, projectID); err != nil {
+			log.Warn("ws_rejected", "reason", "capacity limit", "error", err)
+			_ = conn.Close()
+			return
+		}
 		defer wsHub.Remove(conn)
+		timer := time.AfterFunc(time.Until(expiry), func() {
+			_ = conn.Close()
+		})
+		defer timer.Stop()
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {
 				return
@@ -206,11 +239,11 @@ func main() {
 	sprints.NewHandler(database, bus, authzService, sharedCache).RegisterRoutes(secure)
 	boards.NewHandler(database, authzService, sharedCache).RegisterRoutes(secure)
 	timetracking.NewHandler().RegisterRoutes(secure)
-	releasemodule.NewHandler(database, authzService).RegisterRoutes(secure)
-	itsm.NewHandler(database, authzService).RegisterRoutes(secure)
+	releasemodule.NewHandler(database, authzService, bus).RegisterRoutes(secure)
+	itsm.NewHandler(database, authzService, bus).RegisterRoutes(secure)
 	automation.NewHandler(automationStore, automationEngine).RegisterRoutes(secure)
 	webhooks.NewHandler(webhookDispatcher, bus).RegisterRoutes(secure)
-	integrations.NewHandler(database, authzService).RegisterRoutes(secure)
+	integrationsHandler.RegisterRoutes(secure)
 	insights.NewHandler(database).RegisterRoutes(secure)
 	workflows.NewHandler(database, authzService).RegisterRoutes(secure)
 	notifications.NewHandler(notifRepo).RegisterRoutes(secure)
@@ -245,4 +278,40 @@ func asString(value any) string {
 		return v
 	}
 	return ""
+}
+
+func extractWebsocketToken(conn *websocket.Conn) string {
+	if token := strings.TrimSpace(conn.Cookies("ws_access_token")); token != "" {
+		return token
+	}
+	authHeader := strings.TrimSpace(conn.Headers("Authorization"))
+	if authHeader == "" {
+		return ""
+	}
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
+}
+
+func parseClaimsExpiry(claims jwt.MapClaims) (time.Time, error) {
+	raw, ok := claims["exp"]
+	if !ok {
+		return time.Time{}, errors.New("exp claim missing")
+	}
+	switch value := raw.(type) {
+	case float64:
+		return time.Unix(int64(value), 0).UTC(), nil
+	case int64:
+		return time.Unix(value, 0).UTC(), nil
+	case string:
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return time.Unix(parsed, 0).UTC(), nil
+	default:
+		return time.Time{}, errors.New("exp claim has unsupported type")
+	}
 }

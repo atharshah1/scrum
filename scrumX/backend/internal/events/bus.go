@@ -62,6 +62,9 @@ func (b *Bus) Subscribe(eventType string, handler Handler) {
 }
 
 func (b *Bus) Publish(ctx context.Context, event Event) error {
+	if err := Validate(event); err != nil {
+		return err
+	}
 	if err := b.internal.Publish(ctx, event); err != nil {
 		return err
 	}

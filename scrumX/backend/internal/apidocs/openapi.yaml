@@ -1,11 +1,98 @@
 openapi: 3.0.3
 info:
   title: ScrumX API
-  version: 1.0.0
-  description: Core API surface for ScrumX backend.
+  version: 1.1.0
+  description: |
+    ScrumX REST API for issue/project/release/ITSM/integration workflows.
+    This contract is intended for third-party integrations.
 servers:
   - url: /api/v1
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    orgHeader:
+      type: apiKey
+      in: header
+      name: X-Org-ID
+  schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+    ErrorEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+    IntegrationCredentialPayload:
+      type: object
+      required: [credentials]
+      properties:
+        credentials:
+          type: object
+          additionalProperties: true
+    AlertPayload:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+        incident_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        severity:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+security:
+  - bearerAuth: []
+    orgHeader: []
 paths:
+  /auth/login:
+    post:
+      security: []
+      summary: Login and receive tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /issues:
     get:
       summary: List issues
@@ -42,17 +129,104 @@ paths:
       responses:
         "200":
           description: Updated
-        "409":
-          description: Optimistic locking conflict
-  /sprints/{id}/start:
-    post:
-      summary: Start sprint
+  /integrations:
+    get:
+      summary: List configured integrations (sanitized metadata)
       responses:
         "200":
-          description: Sprint started
-  /sprints/{id}/end:
+          description: Integrations
+  /integrations/github:
     post:
-      summary: Complete sprint
+      summary: Upsert GitHub integration credentials (encrypted at rest)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntegrationCredentialPayload"
       responses:
         "200":
-          description: Sprint completed
+          description: Upserted
+  /integrations/jira:
+    post:
+      summary: Upsert Jira integration credentials (encrypted at rest)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntegrationCredentialPayload"
+      responses:
+        "200":
+          description: Upserted
+  /integrations/{provider}/test:
+    post:
+      summary: Validate/decrypt stored integration config for provider
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Integration config is valid
+  /alerts:
+    post:
+      summary: Create alert (rate-limited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertPayload"
+      responses:
+        "201":
+          description: Alert created
+  /releases:
+    get:
+      summary: List releases
+      responses:
+        "200":
+          description: Release list
+    post:
+      summary: Create release
+      responses:
+        "201":
+          description: Release created
+  /deployments:
+    post:
+      summary: Create deployment for a release
+      responses:
+        "201":
+          description: Deployment created
+  /webhooks/incoming:
+    post:
+      summary: Accept external event and publish to internal bus (rate-limited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type:
+                  type: string
+                project_id:
+                  type: string
+                  format: uuid
+                data:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "202":
+          description: Accepted
+x-realtime:
+  websocket:
+    endpoint: /ws
+    auth:
+      cookie: ws_access_token
+      note: |
+        WebSocket access token is read from cookie `ws_access_token`.
+        Optional query parameter `project_id` scopes events to a project.

@@ -11,6 +11,7 @@ class RealtimeClient {
 
   connect(accessToken: string, orgId?: string, projectId?: string) {
     if (typeof window === 'undefined' || !accessToken) return;
+    document.cookie = `ws_access_token=${encodeURIComponent(accessToken)}; Path=/; SameSite=Lax`;
     this.shouldReconnect = true;
     const fallback = (() => {
       const rawApi = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080/api/v1';
@@ -26,12 +27,7 @@ class RealtimeClient {
       }
     })();
     const endpoint = new URL(process.env.NEXT_PUBLIC_WS_URL ?? fallback);
-    endpoint.searchParams.set('token', accessToken);
-    if (orgId) {
-      endpoint.searchParams.set('org_id', orgId);
-    } else {
-      endpoint.searchParams.delete('org_id');
-    }
+    void orgId;
     if (projectId) {
       endpoint.searchParams.set('project_id', projectId);
     } else {
@@ -73,6 +69,9 @@ class RealtimeClient {
 
   disconnect() {
     this.shouldReconnect = false;
+    if (typeof window !== 'undefined') {
+      document.cookie = 'ws_access_token=; Max-Age=0; Path=/; SameSite=Lax';
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

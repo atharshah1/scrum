@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/atharshah1/scrum/scrumX/backend/internal/authz"
+	"github.com/atharshah1/scrum/scrumX/backend/internal/events"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/utils"
 	"github.com/gofiber/fiber/v2"
@@ -16,10 +17,11 @@ import (
 type Handler struct {
 	db    *sql.DB
 	authz *authz.Service
+	bus   events.Publisher
 }
 
-func NewHandler(db *sql.DB, authzService *authz.Service) *Handler {
-	return &Handler{db: db, authz: authzService}
+func NewHandler(db *sql.DB, authzService *authz.Service, bus events.Publisher) *Handler {
+	return &Handler{db: db, authz: authzService, bus: bus}
 }
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
@@ -27,7 +29,7 @@ func (h *Handler) RegisterRoutes(api fiber.Router) {
 	incidents.Post("/", h.createIncident)
 	incidents.Get("/", h.listIncidents)
 	incidents.Patch("/:id", h.patchIncident)
-	api.Post("/alerts", h.createAlert)
+	api.Post("/alerts", middleware.RateLimitMiddleware(30, time.Minute, nil), h.createAlert)
 }
 
 func (h *Handler) createIncident(c *fiber.Ctx) error {
@@ -65,6 +67,12 @@ func (h *Handler) createIncident(c *fiber.Ctx) error {
 		incidentID, orgID, payload.Title, payload.Severity, payload.Status); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
+	_ = h.bus.Publish(c.Context(), events.New(orgID, "incident.created", userID, map[string]any{
+		"incident_id": incidentID,
+		"title":       payload.Title,
+		"severity":    payload.Severity,
+		"status":      payload.Status,
+	}))
 	return utils.JSONSuccess(c, fiber.StatusCreated, fiber.Map{
 		"id":       incidentID,
 		"title":    payload.Title,
@@ -205,6 +213,11 @@ func (h *Handler) createAlert(c *fiber.Ctx) error {
 	if payload.Payload == nil {
 		payload.Payload = map[string]any{}
 	}
+	tx, err := h.db.BeginTx(c.Context(), nil)
+	if err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	defer tx.Rollback()
 	incidentID := payload.IncidentID
 	if incidentID == nil {
 		title := strings.TrimSpace(payload.Title)
@@ -216,21 +229,37 @@ func (h *Handler) createAlert(c *fiber.Ctx) error {
 			severity = "high"
 		}
 		newIncidentID := uuid.New()
-		if _, err := h.db.ExecContext(c.Context(), `INSERT INTO incidents (id, org_id, title, severity, status) VALUES ($1,$2,$3,$4,'open')`,
+		if _, err := tx.ExecContext(c.Context(), `INSERT INTO incidents (id, org_id, title, severity, status) VALUES ($1,$2,$3,$4,'open')`,
 			newIncidentID, orgID, title, severity); err != nil {
 			return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 		}
 		incidentID = &newIncidentID
+		_ = h.bus.Publish(c.Context(), events.New(orgID, "incident.created", userID, map[string]any{
+			"incident_id": newIncidentID,
+			"title":       title,
+			"severity":    severity,
+			"status":      "open",
+		}))
 	}
 	payloadRaw, err := json.Marshal(payload.Payload)
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, "invalid alert payload")
 	}
 	alertID := uuid.New()
-	if _, err := h.db.ExecContext(c.Context(), `INSERT INTO alerts (id, org_id, incident_id, source, payload) VALUES ($1,$2,$3,$4,$5)`,
+	if _, err := tx.ExecContext(c.Context(), `INSERT INTO alerts (id, org_id, incident_id, source, payload) VALUES ($1,$2,$3,$4,$5)`,
 		alertID, orgID, incidentID, payload.Source, payloadRaw); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
+	if err := tx.Commit(); err != nil {
+		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	_ = h.bus.Publish(c.Context(), events.New(orgID, "alert.created", userID, map[string]any{
+		"alert_id":     alertID,
+		"incident_id":  incidentID,
+		"source":       payload.Source,
+		"autocreated":  payload.IncidentID == nil,
+		"payload_size": len(payloadRaw),
+	}))
 	return utils.JSONSuccess(c, fiber.StatusCreated, fiber.Map{
 		"id":          alertID,
 		"incident_id": incidentID,

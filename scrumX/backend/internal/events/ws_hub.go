@@ -2,6 +2,7 @@ package events
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"sync"
 
@@ -11,24 +12,56 @@ import (
 
 type subscription struct {
 	orgID     uuid.UUID
+	userID    uuid.UUID
 	projectID *uuid.UUID
 }
 
 type WebsocketHub struct {
-	mu      sync.RWMutex
-	clients map[*websocket.Conn]subscription
-	buffer  int
-	log     *slog.Logger
+	mu         sync.RWMutex
+	clients    map[*websocket.Conn]subscription
+	buffer     int
+	log        *slog.Logger
+	maxPerOrg  int
+	maxPerUser int
 }
 
-func NewWebsocketHub(log *slog.Logger, buffer int) *WebsocketHub {
-	return &WebsocketHub{clients: map[*websocket.Conn]subscription{}, buffer: buffer, log: log}
+func NewWebsocketHub(log *slog.Logger, buffer, maxPerOrg, maxPerUser int) *WebsocketHub {
+	return &WebsocketHub{
+		clients:    map[*websocket.Conn]subscription{},
+		buffer:     buffer,
+		log:        log,
+		maxPerOrg:  maxPerOrg,
+		maxPerUser: maxPerUser,
+	}
 }
 
-func (h *WebsocketHub) Add(conn *websocket.Conn, orgID uuid.UUID, projectID *uuid.UUID) {
+func (h *WebsocketHub) Add(conn *websocket.Conn, orgID, userID uuid.UUID, projectID *uuid.UUID) error {
 	h.mu.Lock()
-	h.clients[conn] = subscription{orgID: orgID, projectID: projectID}
-	h.mu.Unlock()
+	defer h.mu.Unlock()
+	if h.maxPerOrg > 0 {
+		orgConnections := 0
+		for _, sub := range h.clients {
+			if sub.orgID == orgID {
+				orgConnections++
+			}
+		}
+		if orgConnections >= h.maxPerOrg {
+			return errors.New("organization websocket connection limit reached")
+		}
+	}
+	if h.maxPerUser > 0 {
+		userConnections := 0
+		for _, sub := range h.clients {
+			if sub.orgID == orgID && sub.userID == userID {
+				userConnections++
+			}
+		}
+		if userConnections >= h.maxPerUser {
+			return errors.New("user websocket connection limit reached")
+		}
+	}
+	h.clients[conn] = subscription{orgID: orgID, userID: userID, projectID: projectID}
+	return nil
 }
 
 func (h *WebsocketHub) Remove(conn *websocket.Conn) {
@@ -51,53 +84,20 @@ func (h *WebsocketHub) Broadcast(event Event) {
 	}
 	h.mu.RUnlock()
 
-	eventProjectID := projectIDFromEvent(event)
+	eventProjectID := event.Scope.ProjectID
 	for conn, sub := range clients {
 		if sub.orgID != uuid.Nil && sub.orgID != event.OrgID {
 			continue
 		}
-		if sub.projectID != nil && eventProjectID != nil && *sub.projectID != *eventProjectID {
-			continue
+		if sub.projectID != nil {
+			if eventProjectID == nil || *sub.projectID != *eventProjectID {
+				continue
+			}
 		}
 		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
 			h.log.Warn("ws_write_failed", "error", err)
 			h.Remove(conn)
 			_ = conn.Close()
 		}
-	}
-}
-
-func projectIDFromEvent(event Event) *uuid.UUID {
-	if id := uuidFromAny(event.Payload["project_id"]); id != nil {
-		return id
-	}
-	if issue, ok := event.Payload["issue"].(map[string]any); ok {
-		if id := uuidFromAny(issue["project_id"]); id != nil {
-			return id
-		}
-	}
-	if release, ok := event.Payload["release"].(map[string]any); ok {
-		if id := uuidFromAny(release["project_id"]); id != nil {
-			return id
-		}
-	}
-	return nil
-}
-
-func uuidFromAny(v any) *uuid.UUID {
-	switch raw := v.(type) {
-	case string:
-		id, err := uuid.Parse(raw)
-		if err != nil {
-			return nil
-		}
-		return &id
-	case uuid.UUID:
-		id := raw
-		return &id
-	case *uuid.UUID:
-		return raw
-	default:
-		return nil
 	}
 }

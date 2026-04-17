@@ -108,26 +108,13 @@ func (h *Handler) create(c *fiber.Ctx) error {
 	}
 	defer tx.Rollback()
 
-	var email string
-	var fullName sql.NullString
-	var passwordHash sql.NullString
-	if err := tx.QueryRowContext(c.Context(), `SELECT email, full_name, password_hash FROM users WHERE id=$1 AND org_id=$2`,
-		actorID, currentOrgID).Scan(&email, &fullName, &passwordHash); err != nil {
-		return utils.JSONError(c, fiber.StatusBadRequest, "actor not found in current organization")
-	}
-
 	orgID := uuid.New()
 	if _, err := tx.ExecContext(c.Context(), `INSERT INTO organizations (id, name, slug) VALUES ($1,$2,$3)`, orgID, name, slug); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	clonedUserID := uuid.New()
-	if _, err := tx.ExecContext(c.Context(), `INSERT INTO users (id, org_id, email, full_name, password_hash) VALUES ($1,$2,$3,$4,$5)`,
-		clonedUserID, orgID, strings.ToLower(email), fullName, passwordHash); err != nil {
-		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
-	}
 	if _, err := tx.ExecContext(c.Context(), `INSERT INTO memberships (id, org_id, user_id, role) VALUES ($1,$2,$3,$4)`,
-		uuid.New(), orgID, clonedUserID, authz.RoleAdmin); err != nil {
+		uuid.New(), orgID, actorID, authz.RoleAdmin); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
 	if err := tx.Commit(); err != nil {
@@ -138,7 +125,7 @@ func (h *Handler) create(c *fiber.Ctx) error {
 		"id":                orgID,
 		"name":              name,
 		"slug":              slug,
-		"bootstrap_user_id": clonedUserID,
+		"bootstrap_user_id": actorID,
 	})
 }
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/atharshah1/scrum/scrumX/backend/internal/authz"
+	"github.com/atharshah1/scrum/scrumX/backend/internal/events"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
 	"github.com/atharshah1/scrum/scrumX/backend/pkg/utils"
 	"github.com/gofiber/fiber/v2"
@@ -16,10 +17,11 @@ import (
 type Handler struct {
 	db    *sql.DB
 	authz *authz.Service
+	bus   events.Publisher
 }
 
-func NewHandler(db *sql.DB, authzService *authz.Service) *Handler {
-	return &Handler{db: db, authz: authzService}
+func NewHandler(db *sql.DB, authzService *authz.Service, bus events.Publisher) *Handler {
+	return &Handler{db: db, authz: authzService, bus: bus}
 }
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
@@ -64,6 +66,12 @@ func (h *Handler) createRelease(c *fiber.Ctx) error {
 		releaseID, orgID, payload.ProjectID, payload.Version, strings.ToLower(payload.Status)); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
+	_ = h.bus.Publish(c.Context(), events.New(orgID, "release.created", userID, map[string]any{
+		"release_id": releaseID,
+		"project_id": payload.ProjectID,
+		"version":    payload.Version,
+		"status":     strings.ToLower(payload.Status),
+	}, events.WithProjectID(payload.ProjectID)))
 	return utils.JSONSuccess(c, fiber.StatusCreated, fiber.Map{
 		"id":         releaseID,
 		"project_id": payload.ProjectID,
@@ -217,6 +225,12 @@ func (h *Handler) createDeploymentFromInput(c *fiber.Ctx, releaseID uuid.UUID, e
 		deploymentID, orgID, releaseID, environmentID, status); err != nil {
 		return utils.JSONError(c, fiber.StatusBadRequest, err.Error())
 	}
+	_ = h.bus.Publish(c.Context(), events.New(orgID, "deployment.created", userID, map[string]any{
+		"deployment_id":  deploymentID,
+		"release_id":     releaseID,
+		"environment_id": environmentID,
+		"status":         status,
+	}, events.WithProjectID(projectID)))
 	return utils.JSONSuccess(c, fiber.StatusCreated, fiber.Map{
 		"id":             deploymentID,
 		"release_id":     releaseID,
