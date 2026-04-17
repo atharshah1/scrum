@@ -164,11 +164,11 @@ func (h *Handler) patchIncident(c *fiber.Ctx) error {
 		payload.Status = &v
 	}
 	_, err = h.db.ExecContext(c.Context(), `UPDATE incidents
-SET title=COALESCE($4, title),
-    severity=COALESCE($5, severity),
-    status=COALESCE($6, status),
+SET title=COALESCE($3, title),
+    severity=COALESCE($4, severity),
+    status=COALESCE($5, status),
     updated_at=NOW()
-WHERE org_id=$1 AND id=$2`, orgID, incidentID, userID, payload.Title, payload.Severity, payload.Status)
+WHERE org_id=$1 AND id=$2`, orgID, incidentID, payload.Title, payload.Severity, payload.Status)
 	if err != nil {
 		return utils.JSONError(c, fiber.StatusInternalServerError, err.Error())
 	}

@@ -140,6 +140,7 @@ func main() {
 	app.Get("/ws", websocket.New(func(conn *websocket.Conn) {
 		accessToken := strings.TrimSpace(conn.Query("token"))
 		if accessToken == "" {
+			log.Warn("ws_rejected", "reason", "missing token")
 			_ = conn.Close()
 			return
 		}
@@ -148,23 +149,27 @@ func main() {
 			return []byte(cfg.JWTSecret), nil
 		})
 		if err != nil || !token.Valid {
+			log.Warn("ws_rejected", "reason", "invalid token", "error", err)
 			_ = conn.Close()
 			return
 		}
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
+			log.Warn("ws_rejected", "reason", "invalid claims")
 			_ = conn.Close()
 			return
 		}
 		orgID, err := uuid.Parse(asString(claims["org_id"]))
 		if err != nil {
+			log.Warn("ws_rejected", "reason", "invalid org claim", "error", err)
 			_ = conn.Close()
 			return
 		}
 		var projectID *uuid.UUID
-		if rawProjectID := strings.TrimSpace(conn.Query("project_id")); rawProjectID != "" {
-			id, parseErr := uuid.Parse(rawProjectID)
+		if projectIDParam := strings.TrimSpace(conn.Query("project_id")); projectIDParam != "" {
+			id, parseErr := uuid.Parse(projectIDParam)
 			if parseErr != nil {
+				log.Warn("ws_rejected", "reason", "invalid project filter", "error", parseErr)
 				_ = conn.Close()
 				return
 			}

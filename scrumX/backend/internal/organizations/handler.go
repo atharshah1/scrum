@@ -96,7 +96,11 @@ func (h *Handler) create(c *fiber.Ctx) error {
 	if slug == "" {
 		slug = "workspace"
 	}
-	slug = slug + "-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
+	if len(suffix) > 8 {
+		suffix = suffix[:8]
+	}
+	slug = slug + "-" + suffix
 
 	tx, err := h.db.BeginTx(c.Context(), nil)
 	if err != nil {

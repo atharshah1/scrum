@@ -102,7 +102,8 @@ func (h *Handler) listReleases(c *fiber.Ctx) error {
 	}
 	if statusFilter != "" {
 		args = append(args, statusFilter)
-		where = append(where, "LOWER(r.status)=$"+itoa(len(args)))
+		statusArg := strconv.Itoa(len(args))
+		where = append(where, "LOWER(r.status)=$"+statusArg)
 	}
 	query := `SELECT r.id, r.project_id, r.version, r.status, r.created_at,
 COALESCE((SELECT COUNT(1) FROM deployments d WHERE d.org_id=r.org_id AND d.release_id=r.id),0) AS deployment_count,
@@ -222,8 +223,4 @@ func (h *Handler) createDeploymentFromInput(c *fiber.Ctx, releaseID uuid.UUID, e
 		"environment_id": environmentID,
 		"status":         status,
 	})
-}
-
-func itoa(v int) string {
-	return strconv.Itoa(v)
 }
