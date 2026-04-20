@@ -7,8 +7,9 @@ info:
     This contract is intended for third-party integrations.
     Bearer JWT authentication is authoritative for tenant context.
     The X-Org-ID header is only an optional fallback for authenticated requests
-    when no org_id is present in the JWT, and it is accepted only after
-    membership validation succeeds.
+    when no org_id is present in the JWT. It never overrides org context that
+    is already present in the token, and it is accepted only after membership
+    validation succeeds.
 servers:
   - url: /api/v1
 components:
@@ -40,7 +41,7 @@ components:
       schema:
         type: string
         format: uuid
-      description: Optional org fallback header for authenticated requests when the JWT does not already carry org context.
+      description: Optional fallback org header for authenticated requests when the JWT does not already carry org context. JWT org context remains authoritative when both are present.
   schemas:
     SuccessEnvelope:
       type: object

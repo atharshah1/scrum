@@ -698,7 +698,8 @@ func matchesClientSecret(client Client, providedSecret string) bool {
 		return bcrypt.CompareHashAndPassword([]byte(client.ClientSecretHash), []byte(normalizeClientSecretForHashing(providedSecret))) == nil
 	}
 	if strings.TrimSpace(client.ClientSecret) != "" {
-		slog.Warn("oauth_client_secret_plaintext_fallback")
+		// Keep legacy plaintext client-secret support only for backwards compatibility during migration.
+		slog.Warn("oauth_client_secret_plaintext_fallback", "deprecated", true)
 		return subtleConstantTimeCompare(client.ClientSecret, providedSecret)
 	}
 	return false
