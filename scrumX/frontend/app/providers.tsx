@@ -6,26 +6,28 @@ import { AuthBootstrap } from '@/components/auth/auth-bootstrap';
 import { ToastList, toast } from '@/components/ui/toast';
 import { realtimeClient } from '@/lib/websocket';
 import { qk } from '@/lib/query-keys';
+import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import type { Board, ScrumEvent } from '@/types';
 
 function extractIssuePayload(event: ScrumEvent): { issueId?: string; projectId?: string } {
-  const payload = event.payload as Record<string, unknown>;
-  const issue = payload.issue as Record<string, unknown> | undefined;
+  const scope = event.scope as Record<string, unknown> | undefined;
   return {
-    issueId: typeof issue?.id === 'string' ? issue.id : typeof payload.issue_id === 'string' ? payload.issue_id : undefined,
-    projectId:
-      typeof issue?.project_id === 'string'
-        ? issue.project_id
-        : typeof payload.project_id === 'string'
-          ? payload.project_id
-          : undefined
+    issueId:
+      typeof scope?.resource_type === 'string' &&
+      scope.resource_type === 'issue' &&
+      typeof scope.resource_id === 'string'
+        ? scope.resource_id
+        : undefined,
+    projectId: typeof scope?.project_id === 'string' ? scope.project_id : undefined
   };
 }
 
 function RealtimeBridge() {
   const queryClient = useQueryClient();
   const accessToken = useAuthStore((s) => s.tokens?.access_token);
+  const orgId = useAuthStore((s) => s.orgId);
+  const selectedProjectId = useAppStore((s) => s.selectedProjectId);
 
   useEffect(() => {
     if (!accessToken) {
@@ -33,7 +35,7 @@ function RealtimeBridge() {
       return;
     }
 
-    realtimeClient.connect();
+    realtimeClient.connect(accessToken, selectedProjectId ?? undefined);
     const unsub = realtimeClient.subscribe((event) => {
       const { issueId, projectId } = extractIssuePayload(event);
 
@@ -80,7 +82,7 @@ function RealtimeBridge() {
       unsub();
       realtimeClient.disconnect();
     };
-  }, [accessToken, queryClient]);
+  }, [accessToken, orgId, selectedProjectId, queryClient]);
 
   return null;
 }

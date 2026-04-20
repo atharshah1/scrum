@@ -24,12 +24,13 @@ func NewHandler(store *Store, replayer deadLetterReplayer) *Handler {
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
 	routes := api.Group("/automation")
-	routes.Post("/rules", h.createRule)
-	routes.Get("/rules", h.listRules)
-	routes.Delete("/rules/:id", h.deleteRule)
-	routes.Get("/dead-letters", h.listDeadLetters)
-	routes.Get("/dead-letters/:id", h.getDeadLetter)
-	routes.Post("/dead-letters/:id/replay", h.replayDeadLetter)
+	scoped := routes.Group("", middleware.RequireScopes("automation:execute"))
+	scoped.Post("/rules", h.createRule)
+	scoped.Get("/rules", h.listRules)
+	scoped.Delete("/rules/:id", h.deleteRule)
+	scoped.Get("/dead-letters", h.listDeadLetters)
+	scoped.Get("/dead-letters/:id", h.getDeadLetter)
+	scoped.Post("/dead-letters/:id/replay", h.replayDeadLetter)
 }
 
 func (h *Handler) createRule(c *fiber.Ctx) error {

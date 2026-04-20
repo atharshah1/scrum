@@ -26,6 +26,8 @@ type Config struct {
 	AutomationBackoff     time.Duration
 	WebhookTimeout        time.Duration
 	WebsocketBufferSize   int
+	WebsocketMaxPerOrg    int
+	WebsocketMaxPerUser   int
 	NotifyActor           bool
 	CacheTTL              time.Duration
 	RedisEnabled          bool
@@ -36,6 +38,7 @@ type Config struct {
 	AIFromTextLimitPerMin int
 	AIFromTextDailyQuota  int
 	AIFromTextMaxChars    int
+	IntegrationCryptoKey  string
 }
 
 func Load() Config {
@@ -59,6 +62,8 @@ func Load() Config {
 		AutomationBackoff:     time.Duration(getEnvInt("AUTOMATION_BACKOFF_MS", 200)) * time.Millisecond,
 		WebhookTimeout:        time.Duration(getEnvInt("WEBHOOK_TIMEOUT_SECONDS", 5)) * time.Second,
 		WebsocketBufferSize:   getEnvInt("WEBSOCKET_BUFFER_SIZE", 64),
+		WebsocketMaxPerOrg:    getEnvInt("WEBSOCKET_MAX_CONNECTIONS_PER_ORG", 200),
+		WebsocketMaxPerUser:   getEnvInt("WEBSOCKET_MAX_CONNECTIONS_PER_USER", 8),
 		NotifyActor:           getEnvBool("NOTIFICATIONS_NOTIFY_ACTOR", false),
 		CacheTTL:              time.Duration(getEnvInt("CACHE_TTL_SECONDS", 30)) * time.Second,
 		RedisEnabled:          getEnvBool("REDIS_ENABLED", false),
@@ -69,6 +74,7 @@ func Load() Config {
 		AIFromTextLimitPerMin: getEnvInt("AI_FROM_TEXT_LIMIT_PER_MIN", 10),
 		AIFromTextDailyQuota:  getEnvInt("AI_FROM_TEXT_DAILY_QUOTA", 200),
 		AIFromTextMaxChars:    getEnvInt("AI_FROM_TEXT_MAX_CHARS", 4000),
+		IntegrationCryptoKey:  getEnv("INTEGRATION_CREDENTIALS_KEY", ""),
 	}
 }
 

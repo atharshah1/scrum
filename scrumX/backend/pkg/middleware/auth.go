@@ -34,6 +34,9 @@ func AuthMiddleware(jwtSecret string) fiber.Handler {
 		if !ok {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid claims"})
 		}
+		if tokenType := asString(claims["type"]); tokenType != "access" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token type"})
+		}
 
 		uid, err := uuid.Parse(asString(claims["sub"]))
 		if err != nil {
@@ -42,6 +45,8 @@ func AuthMiddleware(jwtSecret string) fiber.Handler {
 
 		SetUserID(c, uid)
 		SetRole(c, asString(claims["role"]))
+		SetClientID(c, asString(claims["client_id"]))
+		SetScopes(c, parseScopes(claims["scopes"]))
 
 		if org := asString(claims["org_id"]); org != "" {
 			if oid, parseErr := uuid.Parse(org); parseErr == nil {
@@ -61,4 +66,51 @@ func asString(value interface{}) string {
 		return v
 	}
 	return ""
+}
+
+func parseScopes(value any) []string {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case []string:
+		return compactScopes(v)
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, raw := range v {
+			if scope := asString(raw); scope != "" {
+				out = append(out, scope)
+			}
+		}
+		return compactScopes(out)
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return nil
+		}
+		return compactScopes(strings.Fields(v))
+	default:
+		return nil
+	}
+}
+
+func compactScopes(scopes []string) []string {
+	if len(scopes) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope == "" {
+			continue
+		}
+		if _, ok := seen[scope]; ok {
+			continue
+		}
+		seen[scope] = struct{}{}
+		out = append(out, scope)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

@@ -7,9 +7,12 @@ class RealtimeClient {
   private handlers = new Set<EventHandler>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldReconnect = false;
+  private targetEndpoint: string | null = null;
+  private accessToken: string | null = null;
 
-  connect() {
-    if (typeof window === 'undefined' || this.ws) return;
+  connect(accessToken: string, projectId?: string) {
+    if (typeof window === 'undefined' || !accessToken) return;
+    this.accessToken = accessToken;
     this.shouldReconnect = true;
     const fallback = (() => {
       const rawApi = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080/api/v1';
@@ -24,9 +27,31 @@ class RealtimeClient {
         return 'ws://localhost:8080/ws';
       }
     })();
-    const endpoint = process.env.NEXT_PUBLIC_WS_URL ?? fallback;
+    const endpoint = new URL(process.env.NEXT_PUBLIC_WS_URL ?? fallback);
+    endpoint.searchParams.set('access_token', accessToken);
+    if (projectId) {
+      endpoint.searchParams.set('project_id', projectId);
+    } else {
+      endpoint.searchParams.delete('project_id');
+    }
+    const nextEndpoint = endpoint.toString();
+    if (this.ws && this.targetEndpoint === nextEndpoint) return;
+    this.targetEndpoint = nextEndpoint;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+    this.connectToTarget();
+  }
 
-    this.ws = new WebSocket(endpoint);
+  private connectToTarget() {
+    if (!this.targetEndpoint || typeof window === 'undefined') return;
+    this.ws = new WebSocket(this.targetEndpoint);
     this.ws.onmessage = (message) => {
       try {
         const event = JSON.parse(message.data) as ScrumEvent;
@@ -38,13 +63,14 @@ class RealtimeClient {
     this.ws.onclose = () => {
       this.ws = null;
       if (this.shouldReconnect) {
-        this.reconnectTimer = setTimeout(() => this.connect(), 1500);
+        this.reconnectTimer = setTimeout(() => this.connectToTarget(), 1500);
       }
     };
   }
 
   disconnect() {
     this.shouldReconnect = false;
+    this.accessToken = null;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -53,6 +79,7 @@ class RealtimeClient {
       this.ws.close();
       this.ws = null;
     }
+    this.targetEndpoint = null;
   }
 
   subscribe(handler: EventHandler) {

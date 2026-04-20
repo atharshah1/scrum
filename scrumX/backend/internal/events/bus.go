@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
 )
 
 type Handler func(Event)
@@ -53,6 +54,8 @@ type Bus struct {
 	log      *slog.Logger
 }
 
+const maxPublishAttempts = 3
+
 func NewBus(log *slog.Logger, internal *InternalBus, kafka KafkaPublisher, outbox *OutboxStore) *Bus {
 	return &Bus{internal: internal, kafka: kafka, outbox: outbox, log: log}
 }
@@ -62,21 +65,57 @@ func (b *Bus) Subscribe(eventType string, handler Handler) {
 }
 
 func (b *Bus) Publish(ctx context.Context, event Event) error {
-	if err := b.internal.Publish(ctx, event); err != nil {
+	if err := Validate(event); err != nil {
+		return err
+	}
+	if err := b.publishWithRetry(ctx, "internal", event.Type, func(runCtx context.Context) error {
+		return b.internal.Publish(runCtx, event)
+	}); err != nil {
 		return err
 	}
 	if b.kafka != nil {
 		if b.outbox != nil {
-			if err := b.outbox.Enqueue(ctx, event); err != nil {
-				b.log.Warn("outbox enqueue failed", "error", err, "event", event.Type)
+			if err := b.publishWithRetry(ctx, "outbox", event.Type, func(runCtx context.Context) error {
+				return b.outbox.Enqueue(runCtx, event)
+			}); err != nil {
 				return err
 			}
 			return nil
 		}
-		if err := b.kafka.Publish(ctx, event); err != nil {
-			b.log.Warn("kafka publish failed", "error", err, "event", event.Type)
+		if err := b.publishWithRetry(ctx, "kafka", event.Type, func(runCtx context.Context) error {
+			return b.kafka.Publish(runCtx, event)
+		}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (b *Bus) publishWithRetry(ctx context.Context, target, eventType string, fn func(context.Context) error) error {
+	var lastErr error
+	for attempt := 1; attempt <= maxPublishAttempts; attempt++ {
+		if err := fn(ctx); err != nil {
+			lastErr = err
+			b.log.Warn("event_publish_attempt_failed", "target", target, "event", eventType, "attempt", attempt, "max_attempts", maxPublishAttempts, "error", err)
+			if attempt == maxPublishAttempts {
+				break
+			}
+			delay := time.Duration(attempt) * 100 * time.Millisecond
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return ctx.Err()
+			case <-timer.C:
+			}
+			continue
+		}
+		return nil
+	}
+	if lastErr != nil {
+		b.log.Error("event_publish_failed", "target", target, "event", eventType, "error", lastErr)
+	}
+	return lastErr
 }

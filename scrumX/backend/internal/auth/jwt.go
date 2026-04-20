@@ -24,6 +24,7 @@ func GenerateTokens(userID uuid.UUID, orgID uuid.UUID, role, accessSecret, refre
 		"sub":    userID.String(),
 		"org_id": orgID.String(),
 		"role":   role,
+		"type":   "access",
 		"exp":    accessExpiry.Unix(),
 		"iat":    now.Unix(),
 	})
@@ -31,6 +32,7 @@ func GenerateTokens(userID uuid.UUID, orgID uuid.UUID, role, accessSecret, refre
 		"sub":    userID.String(),
 		"org_id": orgID.String(),
 		"role":   role,
+		"type":   "refresh",
 		"jti":    uuid.NewString(),
 		"exp":    refreshExpiry.Unix(),
 		"iat":    now.Unix(),
@@ -75,6 +77,9 @@ func ParseRefreshClaims(refreshToken, secret string) (RefreshClaims, error) {
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		return RefreshClaims{}, errors.New("invalid token claims")
+	}
+	if tokenType := asString(claims["type"]); tokenType != "refresh" {
+		return RefreshClaims{}, errors.New("invalid refresh token type")
 	}
 	jti, _ := claims["jti"].(string)
 	if jti == "" {

@@ -68,7 +68,7 @@ func (s *Service) Create(ctx context.Context, orgID, actorID uuid.UUID, input Cr
 		return Issue{}, err
 	}
 	_ = s.repo.AddActivity(ctx, orgID, created.ID, actorID, "created", "", "", "")
-	_ = s.bus.Publish(ctx, events.New(orgID, "issue.created", actorID, map[string]any{"issue": created}))
+	_ = s.bus.Publish(ctx, events.New(orgID, "issue.created", actorID, map[string]any{"issue": created}, events.WithProjectID(created.ProjectID)))
 	s.invalidateProjectCaches(orgID, input.ProjectID)
 	return created, nil
 }
@@ -164,7 +164,7 @@ func (s *Service) Delete(ctx context.Context, orgID, actorID, issueID uuid.UUID)
 	if err := s.repo.Delete(ctx, orgID, issueID); err != nil {
 		return err
 	}
-	_ = s.bus.Publish(ctx, events.New(orgID, "issue.deleted", actorID, map[string]any{"issue_id": issueID}))
+	_ = s.bus.Publish(ctx, events.New(orgID, "issue.deleted", actorID, map[string]any{"issue_id": issueID}, events.WithProjectID(projectID)))
 	s.invalidateProjectCaches(orgID, projectID)
 	return nil
 }
@@ -197,7 +197,7 @@ func (s *Service) AddRelation(ctx context.Context, orgID, actorID, issueID, rela
 		return err
 	}
 	_ = s.repo.AddActivity(ctx, orgID, issueID, actorID, "relation_added", "relation_type", "", relationType)
-	_ = s.bus.Publish(ctx, events.New(orgID, "issue.relation_added", actorID, map[string]any{"issue_id": issueID, "related_issue_id": relatedIssueID, "relation_type": relationType}))
+	_ = s.bus.Publish(ctx, events.New(orgID, "issue.relation_added", actorID, map[string]any{"issue_id": issueID, "related_issue_id": relatedIssueID, "relation_type": relationType}, events.WithProjectID(projectID)))
 	s.invalidateProjectCaches(orgID, projectID)
 	return nil
 }
@@ -218,7 +218,7 @@ func (s *Service) AddWatcher(ctx context.Context, orgID, actorID, issueID, userI
 		return err
 	}
 	_ = s.repo.AddActivity(ctx, orgID, issueID, actorID, "watcher_added", "user_id", "", userID.String())
-	_ = s.bus.Publish(ctx, events.New(orgID, "issue.watcher_added", actorID, map[string]any{"issue_id": issueID, "user_id": userID}))
+	_ = s.bus.Publish(ctx, events.New(orgID, "issue.watcher_added", actorID, map[string]any{"issue_id": issueID, "user_id": userID}, events.WithProjectID(projectID)))
 	s.invalidateProjectCaches(orgID, projectID)
 	return nil
 }
@@ -235,7 +235,7 @@ func (s *Service) RemoveWatcher(ctx context.Context, orgID, actorID, issueID, us
 		return err
 	}
 	_ = s.repo.AddActivity(ctx, orgID, issueID, actorID, "watcher_removed", "user_id", userID.String(), "")
-	_ = s.bus.Publish(ctx, events.New(orgID, "issue.watcher_removed", actorID, map[string]any{"issue_id": issueID, "user_id": userID}))
+	_ = s.bus.Publish(ctx, events.New(orgID, "issue.watcher_removed", actorID, map[string]any{"issue_id": issueID, "user_id": userID}, events.WithProjectID(projectID)))
 	s.invalidateProjectCaches(orgID, projectID)
 	return nil
 }
@@ -260,7 +260,7 @@ func (s *Service) AddLabel(ctx context.Context, orgID, actorID, issueID uuid.UUI
 		return err
 	}
 	_ = s.repo.AddActivity(ctx, orgID, issueID, actorID, "label_added", "label", "", label)
-	_ = s.bus.Publish(ctx, events.New(orgID, "issue.label_added", actorID, map[string]any{"issue_id": issueID, "label": label}))
+	_ = s.bus.Publish(ctx, events.New(orgID, "issue.label_added", actorID, map[string]any{"issue_id": issueID, "label": label}, events.WithProjectID(projectID)))
 	s.invalidateProjectCaches(orgID, projectID)
 	return nil
 }
@@ -281,7 +281,7 @@ func (s *Service) RemoveLabel(ctx context.Context, orgID, actorID, issueID uuid.
 		return err
 	}
 	_ = s.repo.AddActivity(ctx, orgID, issueID, actorID, "label_removed", "label", label, "")
-	_ = s.bus.Publish(ctx, events.New(orgID, "issue.label_removed", actorID, map[string]any{"issue_id": issueID, "label": label}))
+	_ = s.bus.Publish(ctx, events.New(orgID, "issue.label_removed", actorID, map[string]any{"issue_id": issueID, "label": label}, events.WithProjectID(projectID)))
 	s.invalidateProjectCaches(orgID, projectID)
 	return nil
 }
@@ -306,7 +306,7 @@ func (s *Service) CreateComment(ctx context.Context, orgID, actorID, issueID uui
 		return IssueComment{}, err
 	}
 	_ = s.repo.AddActivity(ctx, orgID, issueID, actorID, "comment_created", "comment", "", body)
-	_ = s.bus.Publish(ctx, events.New(orgID, "issue.comment_created", actorID, map[string]any{"issue_id": issueID, "comment": comment}))
+	_ = s.bus.Publish(ctx, events.New(orgID, "issue.comment_created", actorID, map[string]any{"issue_id": issueID, "comment": comment}, events.WithProjectID(projectID)))
 	s.invalidateProjectCaches(orgID, projectID)
 	return comment, nil
 }
@@ -436,7 +436,7 @@ func (s *Service) applyIssueUpdate(ctx context.Context, orgID, actorID uuid.UUID
 	if input.Status != nil && *input.Status != current.Status {
 		_ = s.repo.AddActivity(ctx, orgID, issue.ID, actorID, "status_changed", "status", current.Status, *input.Status)
 	}
-	_ = s.bus.Publish(ctx, events.New(orgID, eventType, actorID, map[string]any{"issue": issue}))
+	_ = s.bus.Publish(ctx, events.New(orgID, eventType, actorID, map[string]any{"issue": issue}, events.WithProjectID(issue.ProjectID)))
 	s.invalidateProjectCaches(orgID, current.ProjectID)
 	return issue, nil
 }

@@ -15,6 +15,8 @@ type Config struct {
 	APIURL           string `mapstructure:"api_url"`
 	AccessToken      string `mapstructure:"access_token"`
 	RefreshToken     string `mapstructure:"refresh_token"`
+	OAuthClientID    string `mapstructure:"oauth_client_id"`
+	OAuthScope       string `mapstructure:"oauth_scope"`
 	OrgID            string `mapstructure:"org_id"`
 	UserID           string `mapstructure:"user_id"`
 	CurrentOrgID     string `mapstructure:"current_org_id"`
@@ -82,6 +84,8 @@ func (s *Store) Save(cfg Config) error {
 	v.Set("api_url", cfg.APIURL)
 	v.Set("access_token", cfg.AccessToken)
 	v.Set("refresh_token", cfg.RefreshToken)
+	v.Set("oauth_client_id", cfg.OAuthClientID)
+	v.Set("oauth_scope", cfg.OAuthScope)
 	v.Set("org_id", cfg.OrgID)
 	v.Set("user_id", cfg.UserID)
 	v.Set("current_org_id", cfg.CurrentOrgID)

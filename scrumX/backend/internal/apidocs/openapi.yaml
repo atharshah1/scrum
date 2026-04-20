@@ -1,11 +1,192 @@
 openapi: 3.0.3
 info:
   title: ScrumX API
-  version: 1.0.0
-  description: Core API surface for ScrumX backend.
+  version: 1.1.0
+  description: |
+    ScrumX REST API for issue/project/release/ITSM/integration workflows.
+    This contract is intended for third-party integrations.
+    Bearer JWT authentication is authoritative for tenant context.
+    The X-Org-ID header is only an optional fallback for authenticated requests
+    when no org_id is present in the JWT. It never overrides org context that
+    is already present in the token, and it is accepted only after membership
+    validation succeeds.
 servers:
   - url: /api/v1
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    oauth2Auth:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: /oauth/authorize
+          tokenUrl: /oauth/token
+          scopes:
+            read:issues: Read issues and issue activity
+            write:issues: Create and update issues, comments, labels, and links
+            read:projects: Read projects and boards
+            write:projects: Create and update projects
+            read:releases: Read releases and deployments
+            write:releases: Create releases and deployments
+            admin:org: Manage organization settings and access
+            automation:execute: Manage automation rules and replay actions
+  parameters:
+    orgHeader:
+      in: header
+      name: X-Org-ID
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: Optional fallback org header for authenticated requests when the JWT does not already carry org context. JWT org context remains authoritative when both are present, and the header is only accepted after membership validation succeeds.
+  schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+    ErrorEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+    IntegrationCredentialPayload:
+      type: object
+      required: [credentials]
+      properties:
+        credentials:
+          type: object
+          additionalProperties: true
+    AlertPayload:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+        incident_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        severity:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+    RealtimeEvent:
+      type: object
+      required: [id, org_id, type, actor_id, scope, payload, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        actor_id:
+          type: string
+          format: uuid
+        scope:
+          type: object
+          required: [resource_type, resource_id]
+          properties:
+            project_id:
+              type: string
+              format: uuid
+            resource_type:
+              type: string
+              example: issue
+            resource_id:
+              type: string
+              format: uuid
+        payload:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+security:
+  - bearerAuth: []
 paths:
+  /oauth/authorize:
+    get:
+      security: []
+      summary: Start OAuth authorization code flow
+      responses:
+        "200":
+          description: HTML login and consent experience
+  /oauth/token:
+    post:
+      security: []
+      summary: Exchange an authorization code or refresh token
+      responses:
+        "200":
+          description: OAuth token response
+  /oauth/revoke:
+    post:
+      security: []
+      summary: Revoke a refresh token
+      responses:
+        "200":
+          description: Revoked
+  /oauth/introspect:
+    post:
+      security: []
+      summary: Introspect an access token
+      responses:
+        "200":
+          description: Introspection response
+  /oauth/userinfo:
+    get:
+      summary: Get identity details for the current OAuth access token
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User information
+  /auth/login:
+    post:
+      security: []
+      summary: Login and receive tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /issues:
     get:
       summary: List issues
@@ -42,17 +223,107 @@ paths:
       responses:
         "200":
           description: Updated
-        "409":
-          description: Optimistic locking conflict
-  /sprints/{id}/start:
-    post:
-      summary: Start sprint
+  /integrations:
+    get:
+      summary: List configured integrations (sanitized metadata)
       responses:
         "200":
-          description: Sprint started
-  /sprints/{id}/end:
+          description: Integrations
+  /integrations/github:
     post:
-      summary: Complete sprint
+      summary: Upsert GitHub integration credentials (encrypted at rest)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntegrationCredentialPayload"
       responses:
         "200":
-          description: Sprint completed
+          description: Upserted
+  /integrations/jira:
+    post:
+      summary: Upsert Jira integration credentials (encrypted at rest)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntegrationCredentialPayload"
+      responses:
+        "200":
+          description: Upserted
+  /integrations/{provider}/test:
+    post:
+      summary: Validate/decrypt stored integration config for provider
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Integration config is valid
+  /alerts:
+    post:
+      summary: Create alert (rate-limited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertPayload"
+      responses:
+        "201":
+          description: Alert created
+  /releases:
+    get:
+      summary: List releases
+      responses:
+        "200":
+          description: Release list
+    post:
+      summary: Create release
+      responses:
+        "201":
+          description: Release created
+  /deployments:
+    post:
+      summary: Create deployment for a release
+      responses:
+        "201":
+          description: Deployment created
+  /webhooks/incoming:
+    post:
+      summary: Accept external event and publish to internal bus (rate-limited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type:
+                  type: string
+                project_id:
+                  type: string
+                  format: uuid
+                data:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "202":
+          description: Accepted
+x-realtime:
+  websocket:
+    endpoint: /ws
+    auth:
+      header: Authorization: Bearer <token>
+      query: access_token=<jwt>
+      note: |
+        WebSocket access token is read from Authorization header or `access_token` query parameter.
+        Optional query parameter `project_id` scopes event stream to one project.
+        Event envelope scope is canonical: use `scope.project_id`, `scope.resource_type`, and `scope.resource_id`
+        for realtime filtering/cache updates instead of ad-hoc payload key extraction.
