@@ -151,7 +151,6 @@ func main() {
 		c.Set("Content-Type", "text/plain; version=0.0.4")
 		return c.SendString(metrics.PrometheusText())
 	})
-	oauthHandler.RegisterRoutes(app)
 	wsRoutes := app.Group("/ws")
 	wsRoutes.Get("/", middleware.RateLimitMiddlewareWithKey(40, time.Minute, sharedCache.RedisClient(), func(c *fiber.Ctx) string {
 		return websocketRateLimitKey(c, cfg.JWTSecret)
@@ -244,6 +243,8 @@ func main() {
 
 	api := app.Group("/api/v1")
 	authHandler.RegisterRoutes(api)
+	oauthAPI := app.Group("", middleware.RateLimitMiddleware(20, time.Minute, sharedCache.RedisClient()))
+	oauthHandler.RegisterRoutes(oauthAPI)
 
 	secure := api.Group("", middleware.RateLimitMiddleware(300, time.Minute, sharedCache.RedisClient()), middleware.AuthMiddleware(cfg.JWTSecret), middleware.OrgContextMiddleware())
 	secure.Use(middleware.RBACMiddleware("Admin", "Member", "Viewer"))

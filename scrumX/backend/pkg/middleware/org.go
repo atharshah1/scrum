@@ -7,6 +7,9 @@ import (
 
 func OrgContextMiddleware() fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		if existing := c.Locals(string(orgIDKey)); existing != nil {
+			return c.Next()
+		}
 		orgHeader := c.Get("X-Org-ID")
 		if orgHeader != "" {
 			orgID, err := uuid.Parse(orgHeader)
@@ -14,9 +17,6 @@ func OrgContextMiddleware() fiber.Handler {
 				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid org id"})
 			}
 			SetOrgID(c, orgID)
-			return c.Next()
-		}
-		if existing := c.Locals(string(orgIDKey)); existing != nil {
 			return c.Next()
 		}
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "missing X-Org-ID header"})

@@ -35,14 +35,15 @@ type Service struct {
 }
 
 type Client struct {
-	ID             uuid.UUID
-	ClientID       string
-	ClientSecret   string
-	Name           string
-	RedirectURIs   []string
-	Scopes         []string
-	OwnerOrgID     *uuid.UUID
-	IsConfidential bool
+	ID               uuid.UUID
+	ClientID         string
+	ClientSecret     string
+	ClientSecretHash string
+	Name             string
+	RedirectURIs     []string
+	Scopes           []string
+	OwnerOrgID       *uuid.UUID
+	IsConfidential   bool
 }
 
 type AuthorizeRequest struct {
@@ -93,7 +94,6 @@ type authorizeSessionClaims struct {
 	Scopes              []string `json:"scopes"`
 	CodeChallenge       string   `json:"code_challenge"`
 	CodeChallengeMethod string   `json:"code_challenge_method"`
-	jwt.RegisteredClaims
 }
 
 type accessTokenClaims struct {
@@ -151,11 +151,12 @@ func (s *Service) GetClient(ctx context.Context, clientID string) (Client, error
 	var client Client
 	var redirectJSON, scopeJSON []byte
 	var ownerOrg sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT id, client_id, COALESCE(client_secret, ''), name, redirect_uris, scopes, owner_org_id::text, is_confidential
+	err := s.db.QueryRowContext(ctx, `SELECT id, client_id, COALESCE(client_secret, ''), COALESCE(client_secret_hash, ''), name, redirect_uris, scopes, owner_org_id::text, is_confidential
 FROM oauth_clients WHERE client_id=$1 LIMIT 1`, strings.TrimSpace(clientID)).Scan(
 		&client.ID,
 		&client.ClientID,
 		&client.ClientSecret,
+		&client.ClientSecretHash,
 		&client.Name,
 		&redirectJSON,
 		&scopeJSON,
@@ -241,34 +242,69 @@ LIMIT 1`, userID, orgID).Scan(&org.ID, &org.Name, &org.Role)
 	return org, nil
 }
 
-func (s *Service) CreateAuthorizeSession(userID uuid.UUID, req AuthorizeRequest, scopes []string) (string, error) {
-	now := time.Now().UTC()
-	claims := authorizeSessionClaims{
-		UserID:              userID.String(),
-		ClientID:            strings.TrimSpace(req.ClientID),
-		RedirectURI:         strings.TrimSpace(req.RedirectURI),
-		State:               strings.TrimSpace(req.State),
-		Scopes:              scopes,
-		CodeChallenge:       strings.TrimSpace(req.CodeChallenge),
-		CodeChallengeMethod: strings.TrimSpace(req.CodeChallengeMethod),
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(authorizeSessionTTL)),
-			IssuedAt:  jwt.NewNumericDate(now),
-			Subject:   userID.String(),
-		},
+func (s *Service) CreateAuthorizeSession(ctx context.Context, userID uuid.UUID, req AuthorizeRequest, scopes []string) (string, error) {
+	sessionToken, err := randomToken(32)
+	if err != nil {
+		return "", err
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(s.accessSecret))
+	_, err = s.db.ExecContext(ctx, `INSERT INTO oauth_sessions (id, session_token_hash, user_id, client_id, redirect_uri, state, scopes, code_challenge, code_challenge_method, expires_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		uuid.New(),
+		hashToken(sessionToken),
+		userID,
+		strings.TrimSpace(req.ClientID),
+		strings.TrimSpace(req.RedirectURI),
+		strings.TrimSpace(req.State),
+		mustJSON(scopes),
+		strings.TrimSpace(req.CodeChallenge),
+		strings.TrimSpace(req.CodeChallengeMethod),
+		time.Now().UTC().Add(authorizeSessionTTL),
+	)
+	if err != nil {
+		return "", err
+	}
+	return sessionToken, nil
 }
 
-func (s *Service) ParseAuthorizeSession(sessionToken string) (authorizeSessionClaims, error) {
-	parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+func (s *Service) consumeAuthorizeSession(ctx context.Context, sessionToken string, approved bool) (authorizeSessionClaims, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return authorizeSessionClaims{}, err
+	}
+	defer tx.Rollback()
 	claims := authorizeSessionClaims{}
-	token, err := parser.ParseWithClaims(strings.TrimSpace(sessionToken), &claims, func(token *jwt.Token) (any, error) {
-		return []byte(s.accessSecret), nil
-	})
-	if err != nil || !token.Valid {
-		return authorizeSessionClaims{}, errors.New("invalid authorization session")
+	var scopeJSON []byte
+	err = tx.QueryRowContext(ctx, `SELECT user_id::text, client_id, redirect_uri, state, scopes, code_challenge, code_challenge_method
+FROM oauth_sessions
+WHERE session_token_hash=$1 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > NOW()
+LIMIT 1 FOR UPDATE`, hashToken(sessionToken)).Scan(
+		&claims.UserID,
+		&claims.ClientID,
+		&claims.RedirectURI,
+		&claims.State,
+		&scopeJSON,
+		&claims.CodeChallenge,
+		&claims.CodeChallengeMethod,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return authorizeSessionClaims{}, errors.New("invalid authorization session")
+		}
+		return authorizeSessionClaims{}, err
+	}
+	if err := json.Unmarshal(scopeJSON, &claims.Scopes); err != nil {
+		return authorizeSessionClaims{}, err
+	}
+	if approved {
+		_, err = tx.ExecContext(ctx, `UPDATE oauth_sessions SET consumed_at=NOW() WHERE session_token_hash=$1`, hashToken(sessionToken))
+	} else {
+		_, err = tx.ExecContext(ctx, `UPDATE oauth_sessions SET consumed_at=NOW(), revoked_at=NOW() WHERE session_token_hash=$1`, hashToken(sessionToken))
+	}
+	if err != nil {
+		return authorizeSessionClaims{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return authorizeSessionClaims{}, err
 	}
 	return claims, nil
 }
@@ -535,7 +571,7 @@ func (s *Service) validateClientCredentials(ctx context.Context, clientID, clien
 		return Client{}, err
 	}
 	if client.IsConfidential {
-		if strings.TrimSpace(clientSecret) == "" || subtleConstantTimeCompare(client.ClientSecret, clientSecret) == false {
+		if !matchesClientSecret(client, clientSecret) {
 			return Client{}, errors.New("invalid client credentials")
 		}
 	}
@@ -650,4 +686,18 @@ func subtleConstantTimeCompare(expected, actual string) bool {
 	expectedBytes := []byte(expected)
 	actualBytes := []byte(actual)
 	return subtle.ConstantTimeCompare(expectedBytes, actualBytes) == 1
+}
+
+func matchesClientSecret(client Client, providedSecret string) bool {
+	providedSecret = strings.TrimSpace(providedSecret)
+	if providedSecret == "" {
+		return false
+	}
+	if strings.TrimSpace(client.ClientSecretHash) != "" {
+		return bcrypt.CompareHashAndPassword([]byte(client.ClientSecretHash), []byte(providedSecret)) == nil
+	}
+	if strings.TrimSpace(client.ClientSecret) != "" {
+		return subtleConstantTimeCompare(client.ClientSecret, providedSecret)
+	}
+	return false
 }

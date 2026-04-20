@@ -112,7 +112,7 @@ func (h *Handler) authorizeLogin(c *fiber.Ctx) error {
 	if err != nil || len(orgs) == 0 {
 		return c.Status(fiber.StatusForbidden).Type("html").SendString(renderLoginPage(client, req, scopes, "no organizations available for this user"))
 	}
-	session, err := h.service.CreateAuthorizeSession(userID, req, scopes)
+	session, err := h.service.CreateAuthorizeSession(c.Context(), userID, req, scopes)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).Type("html").SendString(renderErrorPage(err.Error()))
 	}
@@ -124,13 +124,14 @@ func (h *Handler) authorizeConsent(c *fiber.Ctx) error {
 	if err := c.BodyParser(&form); err != nil {
 		return c.Status(fiber.StatusBadRequest).Type("html").SendString(renderErrorPage("invalid consent submission"))
 	}
-	claims, err := h.service.ParseAuthorizeSession(form.Session)
+	approved := strings.EqualFold(strings.TrimSpace(form.Action), "approve")
+	claims, err := h.service.consumeAuthorizeSession(c.Context(), form.Session, approved)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).Type("html").SendString(renderErrorPage(err.Error()))
 	}
 	redirectURI := strings.TrimSpace(claims.RedirectURI)
 	state := strings.TrimSpace(claims.State)
-	if !strings.EqualFold(strings.TrimSpace(form.Action), "approve") {
+	if !approved {
 		return c.Redirect(withQuery(redirectURI, map[string]string{"error": "access_denied", "state": state}), http.StatusFound)
 	}
 	userID, err := uuid.Parse(claims.UserID)
