@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -648,12 +649,5 @@ func containsExact(values []string, target string) bool {
 func subtleConstantTimeCompare(expected, actual string) bool {
 	expectedBytes := []byte(expected)
 	actualBytes := []byte(actual)
-	if len(expectedBytes) != len(actualBytes) {
-		return false
-	}
-	var diff byte
-	for i := range expectedBytes {
-		diff |= expectedBytes[i] ^ actualBytes[i]
-	}
-	return diff == 0
+	return subtle.ConstantTimeCompare(expectedBytes, actualBytes) == 1
 }

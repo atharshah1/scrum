@@ -28,7 +28,7 @@ type callbackResult struct {
 func startOAuthCallbackServer() (*http.Server, <-chan callbackResult, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:8787")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("start local callback server on 127.0.0.1:8787: %w (ensure no other scrumx login flow is running and the port is available)", err)
 	}
 	resultCh := make(chan callbackResult, 1)
 	mux := http.NewServeMux()
