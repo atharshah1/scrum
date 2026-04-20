@@ -41,7 +41,7 @@ components:
       schema:
         type: string
         format: uuid
-      description: Optional fallback org header for authenticated requests when the JWT does not already carry org context. JWT org context remains authoritative when both are present.
+      description: Optional fallback org header for authenticated requests when the JWT does not already carry org context. JWT org context remains authoritative when both are present, and the header is only accepted after membership validation succeeds.
   schemas:
     SuccessEnvelope:
       type: object

@@ -19,6 +19,7 @@ type Handler struct {
 	redisClient *redis.Client
 }
 
+// Keep token exchange tighter than the broader OAuth group limit because it is the credential-bearing entrypoint.
 const oauthTokenRateLimitPerMinute = 5
 
 func NewHandler(service *Service, redisClient *redis.Client) *Handler {
