@@ -246,7 +246,7 @@ func main() {
 	oauthAPI := app.Group("", middleware.RateLimitMiddleware(20, time.Minute, sharedCache.RedisClient()))
 	oauthHandler.RegisterRoutes(oauthAPI)
 
-	secure := api.Group("", middleware.RateLimitMiddleware(300, time.Minute, sharedCache.RedisClient()), middleware.AuthMiddleware(cfg.JWTSecret), middleware.OrgContextMiddleware())
+	secure := api.Group("", middleware.RateLimitMiddleware(300, time.Minute, sharedCache.RedisClient()), middleware.AuthMiddleware(cfg.JWTSecret), middleware.OrgContextMiddleware(database))
 	secure.Use(middleware.RBACMiddleware("Admin", "Member", "Viewer"))
 	secure.Use(middleware.AuditMiddleware(database))
 
