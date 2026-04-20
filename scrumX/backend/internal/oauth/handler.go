@@ -6,24 +6,28 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/atharshah1/scrum/scrumX/backend/pkg/middleware"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 type Handler struct {
-	service *Service
+	service     *Service
+	redisClient *redis.Client
 }
 
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service *Service, redisClient *redis.Client) *Handler {
+	return &Handler{service: service, redisClient: redisClient}
 }
 
 func (h *Handler) RegisterRoutes(app fiber.Router) {
 	app.Get("/oauth/authorize", h.authorizePage)
 	app.Post("/oauth/authorize", h.authorizeLogin)
 	app.Post("/oauth/authorize/consent", h.authorizeConsent)
-	app.Post("/oauth/token", h.token)
+	app.Post("/oauth/token", middleware.RateLimitMiddleware(10, time.Minute, h.redisClient), h.token)
 	app.Post("/oauth/revoke", h.revoke)
 	app.Post("/oauth/introspect", h.introspect)
 	app.Get("/oauth/userinfo", h.userinfo)

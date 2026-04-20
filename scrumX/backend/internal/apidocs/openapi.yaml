@@ -5,6 +5,10 @@ info:
   description: |
     ScrumX REST API for issue/project/release/ITSM/integration workflows.
     This contract is intended for third-party integrations.
+    Bearer JWT authentication is authoritative for tenant context.
+    The X-Org-ID header is only an optional fallback for authenticated requests
+    when no org_id is present in the JWT, and it is accepted only after
+    membership validation succeeds.
 servers:
   - url: /api/v1
 components:
@@ -28,10 +32,15 @@ components:
             write:releases: Create releases and deployments
             admin:org: Manage organization settings and access
             automation:execute: Manage automation rules and replay actions
+  parameters:
     orgHeader:
-      type: apiKey
       in: header
       name: X-Org-ID
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: Optional org fallback header for authenticated requests when the JWT does not already carry org context.
   schemas:
     SuccessEnvelope:
       type: object
@@ -111,7 +120,6 @@ components:
           format: date-time
 security:
   - bearerAuth: []
-    orgHeader: []
 paths:
   /oauth/authorize:
     get:

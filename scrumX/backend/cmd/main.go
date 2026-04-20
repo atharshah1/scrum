@@ -108,7 +108,7 @@ func main() {
 	authService := auth.NewService(database, cfg.JWTSecret, cfg.JWTRefreshSecret)
 	authHandler := auth.NewHandler(authService, cfg.JWTSecret, cfg.JWTRefreshSecret, sharedCache.RedisClient())
 	oauthService := oauth.NewService(database, cfg.JWTSecret, cfg.JWTRefreshSecret)
-	oauthHandler := oauth.NewHandler(oauthService)
+	oauthHandler := oauth.NewHandler(oauthService, sharedCache.RedisClient())
 	integrationsHandler, err := integrations.NewHandler(database, authzService, cfg.IntegrationCryptoKey)
 	if err != nil {
 		log.Error("integrations_handler_failed", "error", err)

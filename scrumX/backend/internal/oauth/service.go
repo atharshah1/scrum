@@ -698,7 +698,7 @@ func matchesClientSecret(client Client, providedSecret string) bool {
 		return bcrypt.CompareHashAndPassword([]byte(client.ClientSecretHash), []byte(normalizeClientSecretForHashing(providedSecret))) == nil
 	}
 	if strings.TrimSpace(client.ClientSecret) != "" {
-		slog.Warn("oauth_client_secret_plaintext_fallback", "client_id", client.ClientID)
+		slog.Warn("oauth_client_secret_plaintext_fallback")
 		return subtleConstantTimeCompare(client.ClientSecret, providedSecret)
 	}
 	return false
