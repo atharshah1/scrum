@@ -2,10 +2,10 @@ package oauth
 
 import (
 	"bytes"
+	"html/template"
 	"net/http"
 	"net/url"
 	"strings"
-	"text/template"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

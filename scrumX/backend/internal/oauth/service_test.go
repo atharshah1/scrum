@@ -3,6 +3,7 @@ package oauth
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -33,7 +34,7 @@ func TestValidateRedirectURI(t *testing.T) {
 }
 
 func TestMatchesClientSecretPrefersHash(t *testing.T) {
-	hash, err := bcrypt.GenerateFromPassword([]byte("super-secret"), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(normalizeClientSecretForHashing("super-secret")), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate hash: %v", err)
 	}
@@ -43,6 +44,14 @@ func TestMatchesClientSecretPrefersHash(t *testing.T) {
 	}
 	if matchesClientSecret(client, "wrong-secret") {
 		t.Fatal("expected wrong secret to fail")
+	}
+}
+
+func TestNormalizeClientSecretForHashingSupportsLongSecrets(t *testing.T) {
+	longSecret := strings.Repeat("a", 256)
+	normalized := normalizeClientSecretForHashing(longSecret)
+	if len(normalized) != 64 {
+		t.Fatalf("expected sha256 hex length 64, got %d", len(normalized))
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"sort"
 	"strings"
@@ -694,10 +695,16 @@ func matchesClientSecret(client Client, providedSecret string) bool {
 		return false
 	}
 	if strings.TrimSpace(client.ClientSecretHash) != "" {
-		return bcrypt.CompareHashAndPassword([]byte(client.ClientSecretHash), []byte(providedSecret)) == nil
+		return bcrypt.CompareHashAndPassword([]byte(client.ClientSecretHash), []byte(normalizeClientSecretForHashing(providedSecret))) == nil
 	}
 	if strings.TrimSpace(client.ClientSecret) != "" {
+		slog.Warn("oauth_client_secret_plaintext_fallback", "client_id", client.ClientID)
 		return subtleConstantTimeCompare(client.ClientSecret, providedSecret)
 	}
 	return false
+}
+
+func normalizeClientSecretForHashing(secret string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(secret)))
+	return hex.EncodeToString(sum[:])
 }

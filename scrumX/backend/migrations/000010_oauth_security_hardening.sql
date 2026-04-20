@@ -2,7 +2,7 @@ ALTER TABLE oauth_clients
   ADD COLUMN IF NOT EXISTS client_secret_hash TEXT;
 
 UPDATE oauth_clients
-SET client_secret_hash = crypt(client_secret, gen_salt('bf'))
+SET client_secret_hash = crypt(encode(digest(client_secret, 'sha256'), 'hex'), gen_salt('bf'))
 WHERE COALESCE(client_secret, '') <> ''
   AND COALESCE(client_secret_hash, '') = '';
 
