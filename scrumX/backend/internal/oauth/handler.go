@@ -20,7 +20,7 @@ type Handler struct {
 }
 
 // Keep token exchange tighter than the broader OAuth group limit because it is the credential-bearing entrypoint.
-const oauthTokenRateLimitPerMinute = 5
+const oauthTokenRateLimit = 5
 
 func NewHandler(service *Service, redisClient *redis.Client) *Handler {
 	return &Handler{service: service, redisClient: redisClient}
@@ -30,7 +30,7 @@ func (h *Handler) RegisterRoutes(app fiber.Router) {
 	app.Get("/oauth/authorize", h.authorizePage)
 	app.Post("/oauth/authorize", h.authorizeLogin)
 	app.Post("/oauth/authorize/consent", h.authorizeConsent)
-	app.Post("/oauth/token", middleware.RateLimitMiddleware(oauthTokenRateLimitPerMinute, time.Minute, h.redisClient), h.token)
+	app.Post("/oauth/token", middleware.RateLimitMiddleware(oauthTokenRateLimit, time.Minute, h.redisClient), h.token)
 	app.Post("/oauth/revoke", h.revoke)
 	app.Post("/oauth/introspect", h.introspect)
 	app.Get("/oauth/userinfo", h.userinfo)
