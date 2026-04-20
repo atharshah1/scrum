@@ -26,6 +26,7 @@ import (
 	"github.com/atharshah1/scrum/scrumX/backend/internal/issues"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/itsm"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/notifications"
+	"github.com/atharshah1/scrum/scrumX/backend/internal/oauth"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/organizations"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/projects"
 	"github.com/atharshah1/scrum/scrumX/backend/internal/rbac"
@@ -106,6 +107,8 @@ func main() {
 
 	authService := auth.NewService(database, cfg.JWTSecret, cfg.JWTRefreshSecret)
 	authHandler := auth.NewHandler(authService, cfg.JWTSecret, cfg.JWTRefreshSecret, sharedCache.RedisClient())
+	oauthService := oauth.NewService(database, cfg.JWTSecret, cfg.JWTRefreshSecret)
+	oauthHandler := oauth.NewHandler(oauthService)
 	integrationsHandler, err := integrations.NewHandler(database, authzService, cfg.IntegrationCryptoKey)
 	if err != nil {
 		log.Error("integrations_handler_failed", "error", err)
@@ -148,6 +151,7 @@ func main() {
 		c.Set("Content-Type", "text/plain; version=0.0.4")
 		return c.SendString(metrics.PrometheusText())
 	})
+	oauthHandler.RegisterRoutes(app)
 	wsRoutes := app.Group("/ws")
 	wsRoutes.Get("/", middleware.RateLimitMiddlewareWithKey(40, time.Minute, sharedCache.RedisClient(), func(c *fiber.Ctx) string {
 		return websocketRateLimitKey(c, cfg.JWTSecret)

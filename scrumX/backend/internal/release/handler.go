@@ -26,10 +26,12 @@ func NewHandler(db *sql.DB, authzService *authz.Service, bus events.Publisher) *
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
 	r := api.Group("/releases")
-	r.Post("/", h.createRelease)
-	r.Get("/", h.listReleases)
-	r.Post("/:id/deploy", h.deployRelease)
-	api.Post("/deployments", h.createDeployment)
+	read := r.Group("", middleware.RequireScopes("read:releases"))
+	write := r.Group("", middleware.RequireScopes("write:releases"))
+	write.Post("/", h.createRelease)
+	read.Get("/", h.listReleases)
+	write.Post("/:id/deploy", h.deployRelease)
+	api.Post("/deployments", middleware.RequireScopes("write:releases"), h.createDeployment)
 }
 
 func (h *Handler) createRelease(c *fiber.Ctx) error {

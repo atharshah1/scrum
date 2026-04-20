@@ -20,7 +20,7 @@ func NewHandler(db *sql.DB, authzService *authz.Service) *Handler {
 }
 
 func (h *Handler) RegisterRoutes(api fiber.Router) {
-	api.Get("/rbac", h.getEffectiveAccess)
+	api.Get("/rbac", middleware.RequireScopes("admin:org"), h.getEffectiveAccess)
 }
 
 func (h *Handler) getEffectiveAccess(c *fiber.Ctx) error {

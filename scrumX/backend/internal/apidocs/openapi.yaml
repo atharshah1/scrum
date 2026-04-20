@@ -13,6 +13,21 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    oauth2Auth:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: /oauth/authorize
+          tokenUrl: /oauth/token
+          scopes:
+            read:issues: Read issues and issue activity
+            write:issues: Create and update issues, comments, labels, and links
+            read:projects: Read projects and boards
+            write:projects: Create and update projects
+            read:releases: Read releases and deployments
+            write:releases: Create releases and deployments
+            admin:org: Manage organization settings and access
+            automation:execute: Manage automation rules and replay actions
     orgHeader:
       type: apiKey
       in: header
@@ -98,6 +113,42 @@ security:
   - bearerAuth: []
     orgHeader: []
 paths:
+  /oauth/authorize:
+    get:
+      security: []
+      summary: Start OAuth authorization code flow
+      responses:
+        "200":
+          description: HTML login and consent experience
+  /oauth/token:
+    post:
+      security: []
+      summary: Exchange an authorization code or refresh token
+      responses:
+        "200":
+          description: OAuth token response
+  /oauth/revoke:
+    post:
+      security: []
+      summary: Revoke a refresh token
+      responses:
+        "200":
+          description: Revoked
+  /oauth/introspect:
+    post:
+      security: []
+      summary: Introspect an access token
+      responses:
+        "200":
+          description: Introspection response
+  /oauth/userinfo:
+    get:
+      summary: Get identity details for the current OAuth access token
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User information
   /auth/login:
     post:
       security: []

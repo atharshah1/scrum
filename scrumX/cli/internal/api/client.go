@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,6 +34,7 @@ type TokenPair struct {
 	RefreshToken string `json:"refresh_token"`
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int64  `json:"expires_in"`
+	Scope        string `json:"scope"`
 }
 
 type Issue struct {
@@ -175,6 +177,24 @@ type authRefreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+type oauthTokenRequest struct {
+	GrantType    string `json:"grant_type"`
+	Code         string `json:"code,omitempty"`
+	RedirectURI  string `json:"redirect_uri,omitempty"`
+	ClientID     string `json:"client_id"`
+	CodeVerifier string `json:"code_verifier,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+}
+
+type oauthUserInfo struct {
+	Sub      string   `json:"sub"`
+	Email    string   `json:"email"`
+	OrgID    string   `json:"org_id"`
+	Role     string   `json:"role"`
+	ClientID string   `json:"client_id"`
+	Scopes   []string `json:"scopes"`
+}
+
 func NewClient(cfgStore *config.Store) *Client {
 	client := &Client{cfgStore: cfgStore}
 	client.startAutoSyncWorker()
@@ -236,6 +256,46 @@ func (c *Client) Refresh(refreshToken string) (TokenPair, error) {
 		return TokenPair{}, err
 	}
 	return out.Data, nil
+}
+
+func (c *Client) OAuthExchangeCode(clientID, code, redirectURI, codeVerifier string) (TokenPair, error) {
+	cfg, err := c.cfgStore.Load()
+	if err != nil {
+		return TokenPair{}, err
+	}
+	var out TokenPair
+	_, err = c.request(ParseServerBaseURL(cfg.APIURL), http.MethodPost, "/oauth/token", "", "", oauthTokenRequest{
+		GrantType:    "authorization_code",
+		Code:         code,
+		RedirectURI:  redirectURI,
+		ClientID:     clientID,
+		CodeVerifier: codeVerifier,
+	}, &out)
+	return out, err
+}
+
+func (c *Client) OAuthRefresh(clientID, refreshToken string) (TokenPair, error) {
+	cfg, err := c.cfgStore.Load()
+	if err != nil {
+		return TokenPair{}, err
+	}
+	var out TokenPair
+	_, err = c.request(ParseServerBaseURL(cfg.APIURL), http.MethodPost, "/oauth/token", "", "", oauthTokenRequest{
+		GrantType:    "refresh_token",
+		ClientID:     clientID,
+		RefreshToken: refreshToken,
+	}, &out)
+	return out, err
+}
+
+func (c *Client) OAuthUserInfo(accessToken string) (oauthUserInfo, error) {
+	cfg, err := c.cfgStore.Load()
+	if err != nil {
+		return oauthUserInfo{}, err
+	}
+	var out oauthUserInfo
+	_, err = c.request(ParseServerBaseURL(cfg.APIURL), http.MethodGet, "/oauth/userinfo", accessToken, "", nil, &out)
+	return out, err
 }
 
 func (c *Client) WhoAmI() error {
@@ -600,12 +660,21 @@ func (c *Client) authedRequest(method, path string, body any, out any) (*resty.R
 		return nil, err
 	}
 
-	tokens, refreshErr := c.Refresh(cfg.RefreshToken)
+	var tokens TokenPair
+	var refreshErr error
+	if strings.TrimSpace(cfg.OAuthClientID) != "" {
+		tokens, refreshErr = c.OAuthRefresh(cfg.OAuthClientID, cfg.RefreshToken)
+	} else {
+		tokens, refreshErr = c.Refresh(cfg.RefreshToken)
+	}
 	if refreshErr != nil {
 		return nil, fmt.Errorf("request failed (%v) and token refresh failed: %w", err, refreshErr)
 	}
 	cfg.AccessToken = tokens.AccessToken
 	cfg.RefreshToken = tokens.RefreshToken
+	if scope := strings.TrimSpace(tokens.Scope); scope != "" {
+		cfg.OAuthScope = scope
+	}
 	if saveErr := c.cfgStore.Save(cfg); saveErr != nil {
 		return nil, saveErr
 	}
@@ -697,4 +766,29 @@ func compactIDs(values []string) []string {
 		out = append(out, v)
 	}
 	return out
+}
+
+func ParseServerBaseURL(apiURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(apiURL), "/")
+	base = strings.TrimSuffix(base, "/api/v1")
+	return base
+}
+
+func ParseJWTClientID(accessToken string) string {
+	parts := strings.Split(accessToken, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	if clientID, ok := claims["client_id"].(string); ok {
+		return strings.TrimSpace(clientID)
+	}
+	return ""
 }
