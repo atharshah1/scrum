@@ -139,14 +139,14 @@ func (g gitContext) Description() string {
 }
 
 func (g gitContext) Labels() []string {
-	labels := []string{"repo:" + sanitizePRLabel(g.Repo)}
+	labels := []string{"repo:" + sanitizeLabel(g.Repo)}
 	seen := map[string]struct{}{labels[0]: {}}
 	for _, file := range g.ChangedFiles {
 		top := strings.TrimSpace(strings.Split(strings.TrimLeft(file, "/"), "/")[0])
 		if top == "" || top == "." {
 			continue
 		}
-		label := "area:" + sanitizePRLabel(top)
+		label := "area:" + sanitizeLabel(top)
 		if _, ok := seen[label]; ok {
 			continue
 		}
@@ -171,8 +171,11 @@ func detectGitContext(baseRef string) (gitContext, error) {
 	}
 	base := nonEmpty(baseRef)
 	if base == "" {
-		if _, err := gitOutput("rev-parse", "--verify", "origin/main"); err == nil {
-			base = "origin/main"
+		for _, candidate := range []string{"origin/main", "origin/master", "main", "master"} {
+			if _, err := gitOutput("rev-parse", "--verify", candidate); err == nil {
+				base = candidate
+				break
+			}
 		}
 	}
 	diffArgs := []string{"diff", "--name-only"}
@@ -207,7 +210,7 @@ func gitOutput(args ...string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-func sanitizePRLabel(value string) string {
+func sanitizeLabel(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	replacer := strings.NewReplacer("/", "-", "\\", "-", "_", "-", " ", "-", ".", "-")
 	value = replacer.Replace(value)

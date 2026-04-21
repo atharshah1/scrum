@@ -46,10 +46,12 @@ export function Topbar() {
   const [highlighted, setHighlighted] = useState(0);
   const [showMenu, setShowMenu] = useState(false);
   const [online, setOnline] = useState(true);
+  const [shortcutLabel, setShortcutLabel] = useState('⌘K');
 
   useEffect(() => {
     const updateOnline = () => setOnline(window.navigator.onLine);
     updateOnline();
+    setShortcutLabel(/mac|iphone|ipad|ipod/i.test(window.navigator.platform) ? '⌘K' : 'Ctrl+K');
     window.addEventListener('online', updateOnline);
     window.addEventListener('offline', updateOnline);
     return () => {
@@ -166,7 +168,7 @@ export function Topbar() {
           ))}
         </select>
         <Button type="button" variant="outline" size="sm" onClick={() => openPalette(true)}>
-          ⌘K
+          {shortcutLabel}
         </Button>
         <Button
           type="button"

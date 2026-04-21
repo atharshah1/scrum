@@ -376,15 +376,27 @@ function mergeConflictPayload(preview: ConflictPreview, remoteIssue: Issue): Rec
   for (const field of preview.changedFields) {
     const localValue = preview.local[field as keyof Issue];
     const remoteValue = remoteIssue[field as keyof Issue];
-    if (Array.isArray(localValue) || Array.isArray(remoteValue)) {
-      merged[field] = Array.from(new Set([...(Array.isArray(remoteValue) ? remoteValue : []), ...(Array.isArray(localValue) ? localValue : [])]));
-      continue;
+    switch (field) {
+      case 'labels':
+        merged[field] = Array.from(new Set([...(Array.isArray(remoteValue) ? remoteValue : []), ...(Array.isArray(localValue) ? localValue : [])]));
+        break;
+      case 'description':
+      case 'title':
+        if (typeof localValue === 'string' && typeof remoteValue === 'string' && localValue !== remoteValue) {
+          merged[field] = [remoteValue, localValue].filter(Boolean).join(field === 'description' ? '\n\n' : ' / ');
+          break;
+        }
+        merged[field] = localValue;
+        break;
+      case 'status':
+      case 'priority':
+      case 'assignee_id':
+        merged[field] = localValue ?? remoteValue;
+        break;
+      default:
+        merged[field] = localValue;
+        break;
     }
-    if (field === 'description' && typeof localValue === 'string' && typeof remoteValue === 'string' && localValue !== remoteValue) {
-      merged[field] = [remoteValue, localValue].filter(Boolean).join('\n\n');
-      continue;
-    }
-    merged[field] = localValue;
   }
   return merged;
 }

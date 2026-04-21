@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -909,8 +908,6 @@ func smartPriority(value string) string {
 	}
 }
 
-var repoNameSanitizer = regexp.MustCompile(`[^a-z0-9._-]+`)
-
 func currentRepoLabel() string {
 	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
 	output, err := cmd.Output()
@@ -918,12 +915,25 @@ func currentRepoLabel() string {
 		return ""
 	}
 	name := strings.ToLower(strings.TrimSpace(filepath.Base(strings.TrimSpace(string(output)))))
-	name = repoNameSanitizer.ReplaceAllString(name, "-")
+	name = sanitizeLocalLabel(name)
 	name = strings.Trim(name, "-.")
 	if name == "" {
 		return ""
 	}
 	return "repo:" + name
+}
+
+func sanitizeLocalLabel(value string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
 }
 
 func parseCSV(in string) []string {
