@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,7 +22,6 @@ import type { Issue } from '@/types';
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
   const setSelectedProject = useAppStore((s) => s.setSelectedProject);
   const filters = useAppStore((s) => s.issueFilters);
@@ -99,10 +98,11 @@ export default function ProjectsPage() {
   const issues = useMemo(() => issuesQuery.data ?? [], [issuesQuery.data]);
 
   useEffect(() => {
-    if (searchParams.get('focus') === 'create') {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('focus') === 'create') {
       titleInputRef.current?.focus();
     }
-  }, [searchParams]);
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
