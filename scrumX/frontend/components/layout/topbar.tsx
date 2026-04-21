@@ -53,7 +53,7 @@ export function Topbar() {
   const [shortcutLabel, setShortcutLabel] = useState('⌘K');
 
   useEffect(() => {
-    setShortcutLabel(shortcutLabelForCurrentPlatform());
+    setShortcutLabel(getShortcutLabel());
   }, []);
 
   const suggestionsQuery = useQuery({
@@ -230,7 +230,7 @@ export function Topbar() {
   );
 }
 
-function shortcutLabelForCurrentPlatform() {
+function getShortcutLabel() {
   const navigatorWithUAData = window.navigator as Navigator & { userAgentData?: { platform?: string } };
   const platform = navigatorWithUAData.userAgentData?.platform ?? window.navigator.userAgent;
   return /mac|iphone|ipad|ipod/i.test(platform) ? '⌘K' : 'Ctrl+K';

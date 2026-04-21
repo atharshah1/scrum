@@ -4,7 +4,7 @@ scrumX is the primary product surface in this repo: a developer-first task syste
 
 ## One-command local setup
 
-From `/home/runner/work/scrum/scrum/scrumX`:
+From `./scrumX`:
 
 ```bash
 make up
@@ -12,7 +12,7 @@ make up
 
 What it does:
 
-- creates `/home/runner/work/scrum/scrum/scrumX/infra/.env` from `.env.example` if missing
+- creates `./scrumX/infra/.env` from `.env.example` if missing
 - starts Postgres, Redis, backend, and frontend with Docker Compose
 
 Default URLs:
@@ -42,7 +42,7 @@ Use one vertical slice before exploring preview surfaces. This is the entire pro
 9. Use the CLI trust surface to inspect offline/sync/conflict state:
 
 ```bash
-cd /home/runner/work/scrum/scrum
+cd .
 go run ./scrumX/cli status
 go run ./scrumX/cli sync status
 go run ./scrumX/cli issue conflicts list
