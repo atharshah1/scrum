@@ -169,15 +169,10 @@ func detectGitContext(baseRef string) (gitContext, error) {
 	if err != nil {
 		return gitContext{}, err
 	}
-	base := nonEmpty(baseRef)
-	if base == "" {
-		for _, candidate := range []string{"origin/main", "origin/master", "main", "master"} {
-			if _, err := gitOutput("rev-parse", "--verify", candidate); err == nil {
-				base = candidate
-				break
-			}
-		}
-	}
+	base := pickBaseRef(baseRef, func(candidate string) bool {
+		_, err := gitOutput("rev-parse", "--verify", candidate)
+		return err == nil
+	})
 	diffArgs := []string{"diff", "--name-only"}
 	statArgs := []string{"diff", "--stat"}
 	if base != "" {
@@ -215,6 +210,18 @@ func sanitizeLabel(value string) string {
 	replacer := strings.NewReplacer("/", "-", "\\", "-", "_", "-", " ", "-", ".", "-")
 	value = replacer.Replace(value)
 	return strings.Trim(value, "-")
+}
+
+func pickBaseRef(explicit string, exists func(string) bool) string {
+	if explicit = nonEmpty(explicit); explicit != "" {
+		return explicit
+	}
+	for _, candidate := range []string{"origin/main", "origin/master", "main", "master"} {
+		if exists(candidate) {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func init() {
