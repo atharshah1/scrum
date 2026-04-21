@@ -38,7 +38,7 @@ export default function ProjectDetailPage() {
           <Textarea
             value={text}
             onChange={(event) => setText(event.target.value)}
-            placeholder="Describe what needs to be built..."
+            placeholder="Describe the work, branch context, or desired outcome..."
           />
           <Button
             onClick={() => {
@@ -52,22 +52,20 @@ export default function ProjectDetailPage() {
                 return;
               }
               toast({
-                title: 'AI Issue Generation',
-                description: 'Feature flag is enabled, but API workflow is still being finalized.'
+                title: 'Smart drafting',
+                description: 'Feature flag is enabled, but the final drafting workflow is still being finalized.'
               });
             }}
             disabled={!text.trim()}
           >
-            ✨ Generate Issues
+            Draft issue breakdown
           </Button>
-          {!features.AI ? (
-            <p className="text-xs text-muted-foreground">
-              {comingSoonContent.AI.description} {comingSoonContent.AI.hint}
-            </p>
-          ) : null}
+          <p className="text-xs text-muted-foreground">
+            Start with deterministic issue breakdowns first. Optional AI can layer on later without changing the core workflow.
+          </p>
           {!features.AI && mockDrafts.length ? (
             <div className="space-y-2 rounded-md border p-3 text-sm">
-              <p className="text-xs font-medium text-muted-foreground">Dev mock preview</p>
+              <p className="text-xs font-medium text-muted-foreground">Draft preview</p>
               {mockDrafts.map((draft, index) => (
                 <div key={`${draft.title}-${index}`} className="rounded-md border p-2">
                   <p className="font-medium">{draft.title}</p>

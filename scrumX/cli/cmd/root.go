@@ -17,9 +17,17 @@ var (
 var rootCmd = &cobra.Command{
 	Use:     "scrumx",
 	Aliases: []string{"sx"},
-	Short:   "scrumX CLI",
-	Long:    "scrumX is a production-grade CLI for working with projects, sprints, and issues.",
-	Example: "  scrumx issue list --status open\n  scrumx notifications list\n  scrumx completion bash > /etc/bash_completion.d/scrumx",
+	Short:   "Developer-first, offline-safe task CLI",
+	Long: `scrumX is built for fast task work with offline safety, sync visibility,
+and Git-like conflict protection.
+
+Fast paths:
+  sx i c "fix login bug p1 assign me #auth"
+  sx i l --status in_progress
+  sx status
+  sx sync
+  sx pr create-issue`,
+	Example: "  sx i c \"fix login bug p1 assign me #auth\"\n  sx i l --status open\n  sx status\n  sx pr create-issue",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		cfgStore = config.NewStore("")
 		cfg, err := cfgStore.Load()
@@ -41,7 +49,7 @@ var completionCmd = &cobra.Command{
 	Short:     "Generate shell completion script",
 	Args:      cobra.ExactArgs(1),
 	ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
-	Example: "  scrumx completion bash > /etc/bash_completion.d/scrumx\n  scrumx completion zsh > ~/.zsh/completions/_scrumx",
+	Example:   "  scrumx completion bash > /etc/bash_completion.d/scrumx\n  scrumx completion zsh > ~/.zsh/completions/_scrumx",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		switch args[0] {
 		case "bash":

@@ -1,223 +1,185 @@
 # ⚡ scrumX — Developer-First Task System
 
-> A **Linear + Jira + CLI hybrid** with **offline-first sync**, **AI features**, and **Git-like conflict safety**.
+> **Developer-first, offline-safe task system with Git-like conflict protection — faster than Jira.**
 
 ---
 
-## 🧠 Why scrumX?
+## Why scrumX?
 
-Most tools:
+Most task tools slow developers down when work leaves the browser.
 
-* ❌ Lose data in conflicts
-* ❌ Are slow & UI-heavy
-* ❌ Ignore developer workflows
+scrumX focuses on two things first:
 
-scrumX is built differently:
+- **Speed** — fast CLI, keyboard-first TUI, instant web workflows
+- **Safety** — offline-safe local state, visible sync status, conflict protection
 
-> 🔥 **CLI + TUI + Web unified system**
-> 🔒 **Offline-first with conflict-safe sync**
-> 🤖 **AI-powered productivity**
+This is **not** a Jira wrapper and **not** an AI-first product.
+Jira support exists for **migration/import**, not as the product identity.
 
 ---
 
-## ✨ Core Features
+## Core product surfaces
 
-### ⚡ Developer-First UX
+### CLI
 
-* CLI → fast, scriptable workflows
-* TUI → keyboard-first interaction
-* Web UI → clean, Linear-style interface
-
----
-
-### 🔄 Offline-First Sync Engine
-
-* Local-first architecture (CLI/TUI)
-* Operation queue (create/update/delete)
-* Push + Pull sync (delta-based)
-* Retry + backoff handling
-
----
-
-### 🧩 Conflict-Safe Merging (🔥 Differentiator)
-
-* ❌ No data loss
-* ✅ “Keep both” merge strategy
-* 👥 Attribution (who changed what)
-
-```text
-Local change + Remote change → BOTH preserved
-```
-
-👉 Git-style safety for task management
-
----
-
-### 🔍 JQL-like Query System
-
-* `status=done AND assignee=me`
-* Works across:
-
-  * CLI
-  * TUI
-  * Web
-
----
-
-### 🤖 AI Layer
-
-* Auto-create issues from text
-* Summarize tickets
-* Suggest priority/labels
-* Multi-provider (OpenAI / Gemini)
-* Fallback + caching
-
----
-
-### 📊 Insights Engine
-
-* Bottleneck detection
-* Stuck task alerts
-* Team velocity
-* Cycle time
-
----
-
-### ⚡ Speed UX (Linear-style)
-
-* Inline editing (no modals)
-* Keyboard navigation
-* Instant transitions
-* Command palette (⌘K)
-
----
-
-## 🏗️ Architecture
-
-```text
-            ┌──────────────┐
-            │   CLI / TUI  │
-            └──────┬───────┘
-                   │
-          ┌────────▼────────┐
-          │   Local Store   │  ← Source of truth (offline-first)
-          └────────┬────────┘
-                   │
-        ┌──────────▼──────────┐
-        │     Sync Engine     │
-        │  (Push / Pull / Q)  │
-        └──────┬─────┬───────┘
-               │     │
-        ┌──────▼     ▼──────┐
-        │   Backend API     │
-        └────────┬──────────┘
-                 │
-        ┌────────▼────────┐
-        │   Web Frontend  │
-        └─────────────────┘
-```
-
----
-
-## 🔥 Conflict Handling (Key Innovation)
-
-Instead of overwriting:
-
-```text
-User A → "Fix login bug"
-User B → "Resolve auth issue"
-```
-
-scrumX stores:
-
-```json
-{
-  "title": "Fix login bug",
-  "conflicts": [
-    {
-      "field": "title",
-      "values": [
-        { "value": "Fix login bug", "user": "A" },
-        { "value": "Resolve auth issue", "user": "B" }
-      ]
-    }
-  ]
-}
-```
-
-👉 No data is ever lost.
-
----
-
-## 🖥️ CLI Examples
+Git-like shortcuts for fast daily work:
 
 ```bash
-# Search issues (JQL-like)
-scrumx issue search "status=done AND assignee=me"
+sx i c "fix login bug p1 assign me #auth"
+sx i l --status in_progress
+sx i u <issue-id> --priority high
+sx status
+sx sync
+sx pr create-issue
+sx pr link <issue-id>
+```
 
-# Save query
-scrumx issue filter save "my-bugs" "assignee=me AND type=bug"
+What matters here:
 
-# Sync
-scrumx sync now
+- short muscle-memory-friendly commands
+- deterministic smart parsing from command text
+- repo-aware issue creation
+- visible sync / pending / conflict status
 
-# Conflicts
-scrumx issue conflicts <id>
-scrumx issue resolve <id>
+### TUI
+
+Keyboard-first task triage with always-visible sync safety:
+
+- board and issue browsing
+- inline edits
+- quick transitions
+- notifications
+- offline/sync/conflict status at the top
+
+### Web
+
+Built for fast issue work instead of heavy admin screens:
+
+- instant issue list
+- inline editing
+- optimistic updates
+- conflict-aware issue detail view
+- migration flow for bringing work in from Jira
+
+---
+
+## What makes scrumX different?
+
+### Offline-safe by default
+
+CLI and TUI keep local state and queue changes safely when the network drops.
+
+### Git-like conflict protection
+
+Instead of silently overwriting work, scrumX preserves enough context to review and resolve conflicts deliberately.
+
+### Deterministic smart workflows
+
+scrumX can feel “smart” without requiring AI-first UX:
+
+- parse issue metadata from typed commands
+- infer labels from changed files
+- create issues from branch and diff context
+- default to the current user and current context when possible
+
+### Migration without lock-in
+
+Jira is treated as a source system for import and handoff — not the center of the product.
+
+---
+
+## Example workflows
+
+### Create from terminal
+
+```bash
+sx i c "fix login bug p1 assign me #backend"
+```
+
+### Inspect trust state
+
+```bash
+sx status
+```
+
+Example output:
+
+```text
+✔ synced
+mode: online
+pending: 0
+conflicts: 0
+last sync: 2026-04-21T09:40:00Z
+```
+
+### Create an issue from git context
+
+```bash
+sx pr create-issue
+```
+
+This derives:
+
+- title from the current branch
+- description from repo and diff context
+- labels from changed areas
+
+### Link current branch work to an existing issue
+
+```bash
+sx pr link <issue-id>
 ```
 
 ---
 
-## 📦 Tech Stack
+## Product positioning
 
-* **Backend**: Go (Gin/Fiber style APIs)
-* **Frontend**: Next.js + Tailwind
-* **CLI/TUI**: Go
-* **DB**: PostgreSQL + Local Store
-* **Sync Engine**: Custom (queue + delta sync)
-* **AI**: OpenAI + Gemini
+scrumX is built for teams that want:
 
----
-
-## 🚀 What makes this special?
-
-| Feature         | scrumX | Jira | Linear |
-| --------------- | ------ | ---- | ------ |
-| CLI support     | ✅      | ❌    | ❌      |
-| Offline-first   | ✅      | ❌    | ⚠️     |
-| Conflict safety | ✅      | ❌    | ❌      |
-| AI integration  | ✅      | ⚠️   | ⚠️     |
-| Dev-first UX    | ✅      | ❌    | ✅      |
+- something **cheaper than Jira**
+- something **more terminal-native than Linear**
+- something **safer under offline + concurrent edits** than both
 
 ---
 
-## 🧠 Future Work
+## Jira migration
 
-* Background sync daemon
-* CRDT-based merging
-* Web offline mode (IndexedDB)
-* Multi-user collaboration testing
+Jira support is for migration flows such as:
 
----
-
-## 📌 Status
-
-> 🚀 **Production-ready architecture (v1)**
-> 🔧 Actively evolving
+- connect Jira
+- preview issues, epics, and users
+- map statuses and users
+- import with progress feedback
+- verify unmatched users or failed records
 
 ---
 
-## 🤝 Contributing
+## Repository layout
 
-PRs welcome — especially for:
-
-* sync engine improvements
-* UI polish
-* performance
+```text
+scrumX/cli       Fast developer CLI
+scrumX/tui       Keyboard-first terminal UI
+scrumX/frontend  Web app
+scrumX/backend   API, workflows, integrations, migration surfaces
+cmd/             Legacy Atlassian migration bridge
+```
 
 ---
 
-## 💬 Final Thought
+## Status
 
-> scrumX is not a Jira clone.
-> It’s a **developer operating system for tasks.**
+- scrumX is the **primary product surface** in this repository
+- the root `scrum` CLI is a **legacy migration helper**
+- current work is focused on **speed, trust, sync visibility, and conflict UX**
+
+---
+
+## Contributing
+
+Areas that matter most:
+
+- CLI ergonomics
+- sync and conflict resolution
+- web issue workflow polish
+- migration UX
+- TUI responsiveness

@@ -43,7 +43,7 @@ export function CommandPalette() {
       }
       if (pendingGo && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 's') {
         event.preventDefault();
-        router.push('/sprint/default');
+        router.push('/settings');
         setOpen(false);
       }
       pendingGo = false;
@@ -58,16 +58,15 @@ export function CommandPalette() {
   const actions = useMemo(
     () => {
       const staticActions = [
-        { id: 'create-issue', label: 'Create Issue', action: () => router.push('/projects') },
-        { id: 'move-issue', label: 'Move Issue', action: () => router.push('/projects') },
-        { id: 'assign-issue', label: 'Assign Issue', action: () => router.push('/projects') },
-        { id: 'open-project', label: 'Open Project', action: () => router.push(selectedProjectId ? `/projects/${selectedProjectId}` : '/projects') },
-        { id: 'open-board', label: 'Open Board', action: () => router.push(selectedProjectId ? `/board/${selectedProjectId}` : '/board/default') },
-        { id: 'open-dashboard', label: 'Open Dashboard', action: () => router.push('/dashboard') }
+        { id: 'create-issue', label: 'Create issue', action: () => router.push('/projects') },
+        { id: 'open-issues', label: 'Open issue list', action: () => router.push('/projects') },
+        { id: 'open-board', label: 'Open board', action: () => router.push(selectedProjectId ? `/board/${selectedProjectId}` : '/board/default') },
+        { id: 'open-workspace', label: 'Open workspace', action: () => router.push('/dashboard') },
+        { id: 'open-migration', label: 'Open migration flow', action: () => router.push('/settings') }
       ];
       const dynamicSaved = (savedQueries.data ?? []).slice(0, 8).map((item) => ({
         id: `saved-${item.id}`,
-        label: `Saved: ${item.name}`,
+        label: `Saved filter: ${item.name}`,
         action: () => {
           setJqlSearch(item.query);
           router.push('/projects');
@@ -75,7 +74,7 @@ export function CommandPalette() {
       }));
       const dynamicRecent = (recentQueries.data ?? []).slice(0, 8).map((item, i) => ({
         id: `recent-${i}`,
-        label: `Recent: ${item.query}`,
+        label: `Recent filter: ${item.query}`,
         action: () => {
           setJqlSearch(item.query);
           router.push('/projects');
@@ -84,7 +83,7 @@ export function CommandPalette() {
       const searchAction = query.trim()
         ? [{
             id: 'search-issues',
-            label: `Search issues: ${query.trim()}`,
+            label: `Filter issues: ${query.trim()}`,
             action: () => {
               setJqlSearch(query.trim());
               router.push('/projects');
@@ -111,7 +110,7 @@ export function CommandPalette() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           className="mb-2"
-          placeholder="Search commands..."
+          placeholder="Find commands, filters, and navigation..."
           autoFocus
         />
         {filteredActions.map((action) => (

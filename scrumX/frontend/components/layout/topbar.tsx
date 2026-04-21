@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Search, Moon, Sun } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Search, Moon, ShieldCheck, Sun, Wifi, WifiOff } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -19,10 +19,6 @@ function scoreSuggestion(item: string, token: string): number | null {
   const normalizedToken = token.trim().toLowerCase();
   if (!normalizedToken) return 0;
   const value = item.toLowerCase();
-  // Lower score = higher relevance:
-  // 0..99   => prefix match,
-  // 100..199 => contiguous substring match,
-  // 200+    => fuzzy subsequence match (characters in order with gap penalty).
   if (value.startsWith(normalizedToken)) return 0;
   const containsAt = value.indexOf(normalizedToken);
   if (containsAt >= 0) return 100 + containsAt;
@@ -32,11 +28,9 @@ function scoreSuggestion(item: string, token: string): number | null {
   for (const ch of normalizedToken) {
     const idx = value.indexOf(ch, cursor);
     if (idx === -1) return null;
-    // Penalize larger jumps between matched characters to favor tighter matches.
     score += idx - cursor;
     cursor = idx + 1;
   }
-  // Penalize much longer candidates when fuzzy score is otherwise similar.
   score += value.length - normalizedToken.length;
   return score;
 }
@@ -51,6 +45,19 @@ export function Topbar() {
   const theme = useAppStore((s) => s.theme);
   const [highlighted, setHighlighted] = useState(0);
   const [showMenu, setShowMenu] = useState(false);
+  const [online, setOnline] = useState(true);
+
+  useEffect(() => {
+    const updateOnline = () => setOnline(window.navigator.onLine);
+    updateOnline();
+    window.addEventListener('online', updateOnline);
+    window.addEventListener('offline', updateOnline);
+    return () => {
+      window.removeEventListener('online', updateOnline);
+      window.removeEventListener('offline', updateOnline);
+    };
+  }, []);
+
   const suggestionsQuery = useQuery({
     queryKey: qk.issueSearchSuggestions,
     queryFn: () => apiRequest<IssueSearchSuggestions>('/issues/search/suggestions')
@@ -104,7 +111,7 @@ export function Topbar() {
 
   return (
     <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b bg-background px-4">
-      <div className="relative flex w-[40rem] items-center gap-2 rounded-md border px-2">
+      <div className="relative flex w-[42rem] items-center gap-2 rounded-md border px-2">
         <Search className="h-4 w-4 text-muted-foreground" />
         <Input
           className="border-0 p-0 shadow-none focus-visible:ring-0"
@@ -128,7 +135,7 @@ export function Topbar() {
             }
           }}
           onChange={(event) => setJqlSearch(event.target.value)}
-          placeholder="JQL search (e.g. status=done AND assignee=me)"
+          placeholder="Task filter (e.g. status=done AND assignee=me)"
         />
         <select
           className="max-w-40 rounded border bg-transparent px-1 py-1 text-xs"
@@ -159,7 +166,7 @@ export function Topbar() {
           ))}
         </select>
         <Button type="button" variant="outline" size="sm" onClick={() => openPalette(true)}>
-          Ctrl+K
+          ⌘K
         </Button>
         <Button
           type="button"
@@ -197,6 +204,14 @@ export function Topbar() {
         ) : null}
       </div>
       <div className="flex items-center gap-2 text-sm">
+        <Badge className={online ? 'border-emerald-200 text-emerald-700' : 'border-amber-200 text-amber-700'}>
+          {online ? <Wifi className="mr-1 h-3.5 w-3.5" /> : <WifiOff className="mr-1 h-3.5 w-3.5" />}
+          {online ? 'Synced web workspace' : 'Offline-safe browser session'}
+        </Badge>
+        <Badge className="border-blue-200 text-blue-700">
+          <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+          Conflict-safe edits
+        </Badge>
         <Button variant="outline" size="sm" onClick={toggleTheme} aria-label="Toggle theme">
           {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>

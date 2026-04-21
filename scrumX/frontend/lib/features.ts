@@ -16,14 +16,14 @@ export const features: FeatureFlags = {
 
 export const comingSoonContent: Record<FeatureKey, { title: string; description: string; hint: string }> = {
   AI: {
-    title: 'AI Assistant (Coming soon)',
-    description: 'Auto-summarize work and suggest structured issue updates in one click.',
-    hint: 'Tip: we will keep your existing board/issue flows fast and fully stable while this rolls out.'
+    title: 'Smart drafting (coming soon)',
+    description: 'Draft structured issue updates from developer context while keeping your workflow deterministic and fast.',
+    hint: 'Tip: scrumX already prioritizes offline safety, sync visibility, and conflict protection first.'
   },
   INSIGHTS: {
-    title: 'Advanced Insights (Coming soon)',
+    title: 'Advanced insights (coming soon)',
     description: 'Turn raw issue history into bottleneck and delivery guidance.',
-    hint: 'Tip: initial velocity, bottleneck, and stuck-task cards are available today.'
+    hint: 'Tip: keep the workspace fast first; deeper reporting can layer on top later.'
   }
 };
 
@@ -36,13 +36,13 @@ export function getAIIssueDraftMocks(sourceText: string): AIIssueDraft[] {
   return [
     {
       title: `Refine: ${trimmed.slice(0, 40)}`,
-      description: 'Mock draft generated in dev mode while AI feature flag is disabled.',
+      description: 'Rule-based preview draft generated locally while smart drafting is still gated.',
       type: 'story',
       priority: 'medium'
     },
     {
       title: 'Add acceptance criteria',
-      description: 'Create concrete acceptance criteria and validation checklist.',
+      description: 'Create concrete acceptance criteria and a validation checklist before implementation.',
       type: 'task',
       priority: 'high'
     }

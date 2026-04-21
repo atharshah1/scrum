@@ -1,6 +1,5 @@
 /*
 Copyright © 2026 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
@@ -18,9 +17,9 @@ import (
 var lsCmd = &cobra.Command{
 	Use:   "ls",
 	Short: "List issues in the current context",
-	Long: `List issues from the currently selected project or via a custom JQL query.
+	Long: `List source issues from the current migration context or via an explicit JQL query.
 By default, it shows unresolved issues assigned to the current user.
-Use the --all flag to see all issues in the current project context.`,
+Prefer scrumx issue list/search for primary daily workflows.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		showAll, _ := cmd.Flags().GetBool("all")
 		jql, _ := cmd.Flags().GetString("jql")
@@ -60,6 +59,6 @@ Use the --all flag to see all issues in the current project context.`,
 
 func init() {
 	issueCmd.AddCommand(lsCmd)
-	lsCmd.Flags().String("jql", "", "JQL query to filter issues")
+	lsCmd.Flags().String("jql", "", "Source-system JQL query to filter issues")
 	lsCmd.Flags().BoolP("all", "a", false, "Show all issues in the current project")
 }

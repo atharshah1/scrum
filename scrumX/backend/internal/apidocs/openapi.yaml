@@ -243,7 +243,7 @@ paths:
           description: Upserted
   /integrations/jira:
     post:
-      summary: Upsert Jira integration credentials (encrypted at rest)
+      summary: Upsert Jira migration source credentials (encrypted at rest)
       requestBody:
         required: true
         content:

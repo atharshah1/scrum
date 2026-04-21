@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var sprintCmd = &cobra.Command{Use: "sprint", Short: "Sprint commands"}
+var sprintCmd = &cobra.Command{Use: "sprint", Aliases: []string{"s"}, Short: "Sprint commands"}
 
 var sprintStartCmd = &cobra.Command{
 	Use:   "start <sprint-id>",

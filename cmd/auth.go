@@ -1,6 +1,5 @@
 /*
 Copyright © 2026 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
@@ -11,10 +10,9 @@ import (
 // authCmd represents the auth command
 var authCmd = &cobra.Command{
 	Use:   "auth",
-	Short: "Manage Jira authentication",
-	Long: `Manage your authentication session with Atlassian Jira.
-This command group handles logging in via OAuth 2.0 and logging out
-to clear local credentials.`,
+	Short: "Manage legacy Atlassian authentication",
+	Long: `Manage the legacy Atlassian OAuth session used for migration and source-system access.
+For everyday scrumX work, use the scrumx auth commands instead.`,
 }
 
 func init() {

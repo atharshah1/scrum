@@ -25,11 +25,19 @@ const defaultTransitions: WorkflowTransition[] = [
   { id: 'done-todo', from_status: 'done', to_status: 'todo', conditions: {}, validators: {}, post_functions: {} }
 ];
 
+type ConflictPreview = {
+  kind: 'update' | 'transition';
+  payload: Record<string, unknown>;
+  local: Issue;
+  changedFields: string[];
+};
+
 export default function IssueDetailPage() {
   const params = useParams<{ id: string }>();
   const issueId = params.id;
   const queryClient = useQueryClient();
   const [nextStatus, setNextStatus] = useState('');
+  const [conflictPreview, setConflictPreview] = useState<ConflictPreview | null>(null);
 
   const issueQuery = useQuery({
     queryKey: qk.issue(issueId),
@@ -79,15 +87,21 @@ export default function IssueDetailPage() {
       }
       return { previousIssue };
     },
-    onError: (error, _vars, context) => {
+    onSuccess: () => {
+      setConflictPreview(null);
+    },
+    onError: (error, payload, context) => {
       if (context?.previousIssue) {
         queryClient.setQueryData(qk.issue(issueId), context.previousIssue);
       }
       const message = error instanceof Error ? error.message : 'Changes were reverted.';
       const isConflict = /409|conflict|optimistic|updated_at/i.test(message);
+      if (isConflict && context?.previousIssue) {
+        setConflictPreview(buildConflictPreview(context.previousIssue, payload, 'update'));
+      }
       toast({
         title: isConflict ? 'Update conflict detected' : 'Update failed',
-        description: isConflict ? 'This issue changed elsewhere. Reloaded latest values; please review and retry.' : message,
+        description: isConflict ? 'Review local vs remote values below, then keep local, keep remote, or merge.' : message,
         variant: 'error'
       });
       if (isConflict) {
@@ -116,6 +130,7 @@ export default function IssueDetailPage() {
       return { previousIssue };
     },
     onSuccess: (_updatedIssue, status) => {
+      setConflictPreview(null);
       setNextStatus('');
       queryClient.setQueryData<Board | undefined>(qk.board(issue?.project_id ?? ''), (board) => {
         if (!board) return board;
@@ -128,15 +143,18 @@ export default function IssueDetailPage() {
         };
       });
     },
-    onError: (error, _variables, context) => {
+    onError: (error, status, context) => {
       if (context?.previousIssue) {
         queryClient.setQueryData(qk.issue(issueId), context.previousIssue);
       }
       const message = error instanceof Error ? error.message : 'Issue transition was reverted.';
       const isConflict = /409|conflict|optimistic|updated_at/i.test(message);
+      if (isConflict && context?.previousIssue) {
+        setConflictPreview(buildConflictPreview(context.previousIssue, { status }, 'transition'));
+      }
       toast({
         title: isConflict ? 'Transition conflict detected' : 'Transition failed',
-        description: isConflict ? 'Issue changed elsewhere. Reloaded latest values; please choose transition again.' : message,
+        description: isConflict ? 'Review local vs remote status below, then keep local, keep remote, or merge.' : message,
         variant: 'error'
       });
       if (isConflict) {
@@ -163,6 +181,24 @@ export default function IssueDetailPage() {
       </div>
     );
   }
+
+  const resolveConflict = (resolution: 'local' | 'remote' | 'merge') => {
+    if (!conflictPreview || !issue) return;
+    if (resolution === 'remote') {
+      setConflictPreview(null);
+      queryClient.invalidateQueries({ queryKey: qk.issue(issueId), exact: true });
+      return;
+    }
+    if (resolution === 'local') {
+      if (conflictPreview.kind === 'transition') {
+        transitionIssue.mutate(String(conflictPreview.payload.status ?? conflictPreview.local.status));
+        return;
+      }
+      updateIssue.mutate(conflictPreview.payload);
+      return;
+    }
+    updateIssue.mutate(mergeConflictPayload(conflictPreview, issue));
+  };
 
   return (
     <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
@@ -222,6 +258,7 @@ export default function IssueDetailPage() {
 
             <div className="flex items-center gap-2">
               <Badge>{issue?.status ?? 'unknown'}</Badge>
+              <Badge className="border-emerald-200 text-emerald-700">Conflict-safe editing</Badge>
               {features.INSIGHTS ? <Badge>⏱ Cycle time: {(cycleTimeQuery.data?.avg_days ?? 0).toFixed(1)} days</Badge> : null}
             </div>
 
@@ -242,13 +279,13 @@ export default function IssueDetailPage() {
                 variant="outline"
                 onClick={() => toast({ title: comingSoonContent.AI.title, description: `${comingSoonContent.AI.description} ${comingSoonContent.AI.hint}` })}
               >
-                ✨ Summarize
+                Draft summary
               </Button>
               <Button
                 variant="outline"
                 onClick={() => toast({ title: comingSoonContent.AI.title, description: `${comingSoonContent.AI.description} ${comingSoonContent.AI.hint}` })}
               >
-                ✨ Suggest Fields
+                Suggest labels
               </Button>
               <Button variant="outline" onClick={() => timeMutation.mutate('start')}>Start timer</Button>
               <Button variant="outline" onClick={() => timeMutation.mutate('stop')}>Stop timer</Button>
@@ -256,6 +293,40 @@ export default function IssueDetailPage() {
             {!features.AI ? <p className="text-xs text-muted-foreground">{comingSoonContent.AI.description} {comingSoonContent.AI.hint}</p> : null}
           </CardContent>
         </Card>
+
+        {conflictPreview && issue ? (
+          <Card>
+            <CardHeader><CardTitle>Conflict review</CardTitle></CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <p className="text-muted-foreground">Compare your local change with the latest remote value, then keep local, keep remote, or merge.</p>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-md border p-3">
+                  <div className="mb-2 text-xs font-medium text-muted-foreground">LOCAL CHANGE</div>
+                  {conflictPreview.changedFields.map((field) => (
+                    <div key={`local-${field}`} className="mb-2">
+                      <div className="text-xs uppercase text-muted-foreground">{field}</div>
+                      <div>{formatConflictValue(conflictPreview.local[field as keyof Issue])}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="mb-2 text-xs font-medium text-muted-foreground">REMOTE CHANGE</div>
+                  {conflictPreview.changedFields.map((field) => (
+                    <div key={`remote-${field}`} className="mb-2">
+                      <div className="text-xs uppercase text-muted-foreground">{field}</div>
+                      <div>{formatConflictValue(issue[field as keyof Issue])}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => resolveConflict('local')}>Keep local</Button>
+                <Button variant="outline" onClick={() => resolveConflict('remote')}>Keep remote</Button>
+                <Button onClick={() => resolveConflict('merge')}>Merge</Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader><CardTitle>Comments (live)</CardTitle></CardHeader>
@@ -265,19 +336,63 @@ export default function IssueDetailPage() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader><CardTitle>Activity timeline</CardTitle></CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          {(activityQuery.data ?? []).map((entry) => (
-            <div key={entry.id} className="rounded-md border p-2">
-              <div>{entry.action}</div>
-              <div className="text-xs text-muted-foreground">{new Date(entry.created_at).toLocaleString()}</div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        <Card>
+          <CardHeader><CardTitle>Sync & safety</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>✔ Inline edits stay fast with optimistic updates.</p>
+            <p>✔ Conflicts are surfaced instead of silently overwriting work.</p>
+            <p>✔ Merge actions let you preserve both local intent and latest remote state.</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>Activity timeline</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {(activityQuery.data ?? []).map((entry) => (
+              <div key={entry.id} className="rounded-md border p-2">
+                <div>{entry.action}</div>
+                <div className="text-xs text-muted-foreground">{new Date(entry.created_at).toLocaleString()}</div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
+}
+
+function buildConflictPreview(previousIssue: Issue, payload: Record<string, unknown>, kind: ConflictPreview['kind']): ConflictPreview {
+  return {
+    kind,
+    payload,
+    local: { ...previousIssue, ...payload },
+    changedFields: Object.keys(payload)
+  };
+}
+
+function mergeConflictPayload(preview: ConflictPreview, remoteIssue: Issue): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const field of preview.changedFields) {
+    const localValue = preview.local[field as keyof Issue];
+    const remoteValue = remoteIssue[field as keyof Issue];
+    if (Array.isArray(localValue) || Array.isArray(remoteValue)) {
+      merged[field] = Array.from(new Set([...(Array.isArray(remoteValue) ? remoteValue : []), ...(Array.isArray(localValue) ? localValue : [])]));
+      continue;
+    }
+    if (field === 'description' && typeof localValue === 'string' && typeof remoteValue === 'string' && localValue !== remoteValue) {
+      merged[field] = [remoteValue, localValue].filter(Boolean).join('\n\n');
+      continue;
+    }
+    merged[field] = localValue;
+  }
+  return merged;
+}
+
+function formatConflictValue(value: unknown) {
+  if (Array.isArray(value)) return value.join(', ') || '<empty>';
+  if (value === null || value === undefined || value === '') return '<empty>';
+  return String(value);
 }
 
 function InlineTextarea({ value, onSave }: { value: string; onSave: (value: string) => void }) {

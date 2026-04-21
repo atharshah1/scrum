@@ -5,13 +5,13 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
 const items = [
-  { href: '/dashboard', label: 'Dashboard' },
-  { href: '/projects', label: 'Projects' },
+  { href: '/projects', label: 'Issues' },
+  { href: '/dashboard', label: 'Workspace' },
   { href: '/board/default', label: 'Board' },
+  { href: '/settings', label: 'Migration & Settings' },
   { href: '/automation', label: 'Automation' },
   { href: '/releases', label: 'Releases' },
-  { href: '/incidents', label: 'Incidents' },
-  { href: '/settings', label: 'Settings' }
+  { href: '/incidents', label: 'Incidents' }
 ];
 
 export function Sidebar() {
@@ -19,7 +19,8 @@ export function Sidebar() {
 
   return (
     <aside className="w-64 border-r bg-background p-3">
-      <div className="mb-4 px-2 text-lg font-semibold">scrumX</div>
+      <div className="mb-1 px-2 text-lg font-semibold">scrumX</div>
+      <p className="mb-4 px-2 text-xs text-muted-foreground">Fast task work with offline safety and conflict protection.</p>
       <nav className="space-y-1">
         {items.map((item) => (
           <Link

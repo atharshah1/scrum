@@ -13,10 +13,10 @@ import (
 
 var statusCmd = &cobra.Command{
 	Use:   "status [ISSUE_KEY]",
-	Short: "Transition an issue to a new status",
-	Long: `Move an issue through its workflow (e.g., To Do -> Done).
-Fetches valid transitions from Jira and presents an interactive selection menu.`,
-	Args:  cobra.MaximumNArgs(1),
+	Short: "Transition a legacy source issue",
+	Long: `Move a source issue through its workflow (for migration or handoff work).
+Fetches valid transitions from Atlassian and presents an interactive selection menu.`,
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		var issueKey string
 		client := &jira.Client{}

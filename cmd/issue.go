@@ -1,6 +1,5 @@
 /*
 Copyright © 2026 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
@@ -11,10 +10,9 @@ import (
 // issueCmd represents the issue command
 var issueCmd = &cobra.Command{
 	Use:   "issue",
-	Short: "Manage issues (create, list, transition, assign)",
-	Long: `Perform operations on Jira issues.
-Available subcommands allow you to list, create, assign, comment on,
-and transition issues within your projects.`,
+	Short: "Legacy source issue commands",
+	Long: `Use these commands when you need to inspect or move source-system work during migration.
+For primary issue workflows, use scrumx issue ...`,
 }
 
 func init() {

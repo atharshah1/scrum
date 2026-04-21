@@ -14,8 +14,8 @@ import (
 var commentCmd = &cobra.Command{
 	Use:   "comment",
 	Short: "View and add comments",
-	Long: `View and add comments to Jira issues.
-Supports rich text rendering and user mentions.`,
+	Long: `View and add comments on legacy source issues.
+Supports rich text rendering and user mentions while keeping the source record intact.`,
 }
 
 var commentAddCmd = &cobra.Command{
@@ -24,7 +24,7 @@ var commentAddCmd = &cobra.Command{
 	Long: `Post a new comment to a specific issue.
 You can mention users using the syntax @[Name]. If the issue key is omitted,
 an interactive selection list is shown.`,
-	Args:  cobra.MaximumNArgs(1),
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		var issueKey string
 		client := &jira.Client{}
@@ -101,7 +101,7 @@ var commentLsCmd = &cobra.Command{
 	Short: "List comments for an issue",
 	Long: `List all comments for a specific issue in chronological order.
 Provides an interactive menu to reply to specific comments.`,
-	Args:  cobra.ExactArgs(1),
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		issueKey := args[0]
 		client := &jira.Client{}
@@ -183,7 +183,7 @@ func extractTextFromADF(node map[string]interface{}) string {
 			if childMap, ok := child.(map[string]interface{}); ok {
 				childText := extractTextFromADF(childMap)
 				result.WriteString(childText)
-				
+
 				// Add newline for paragraphs
 				if typeStr, ok := childMap["type"].(string); ok && typeStr == "paragraph" {
 					result.WriteString("\n")

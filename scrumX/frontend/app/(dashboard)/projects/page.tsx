@@ -103,8 +103,8 @@ export default function ProjectsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Projects & Issues</h1>
-      <p className="text-xs text-muted-foreground">Keyboard: J/K to move, Enter to open selected issue.</p>
+      <h1 className="text-xl font-semibold">Issue workspace</h1>
+      <p className="text-xs text-muted-foreground">Keyboard: J/K to move, Enter to open the selected issue.</p>
       <Card>
         <CardHeader><CardTitle>Filters</CardTitle></CardHeader>
         <CardContent className="grid gap-2 md:grid-cols-4">
@@ -120,7 +120,7 @@ export default function ProjectsPage() {
         </CardContent>
         {jqlSearch.trim() ? (
           <p className="px-6 pb-4 text-xs text-muted-foreground">
-            JQL search is active from the top bar: <span className="font-medium">{jqlSearch}</span>
+            Task filter is active from the top bar: <span className="font-medium">{jqlSearch}</span>
           </p>
         ) : null}
       </Card>

@@ -33,7 +33,11 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Dashboard</h1>
+      <div>
+        <h1 className="text-xl font-semibold">Workspace</h1>
+        <p className="text-sm text-muted-foreground">Speed and safety first: issue flow, sync trust, and conflict awareness.</p>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-4">
         {issuesQuery.isPending ? (
           <>
@@ -44,27 +48,53 @@ export default function DashboardPage() {
           </>
         ) : (
           <>
-            <Summary title="Total issues" value={issues.length} />
-            <Summary title="Active" value={active} />
-            <Summary title="Done" value={done} />
-            <Summary title="Assigned to me" value={issues.filter((i) => !!i.assignee_id).length} />
+            <Summary title="Open work" value={active} helper="Fast triage first" />
+            <Summary title="Completed" value={done} helper="Closed safely" />
+            <Summary title="Recent issues" value={issues.length} helper="Visible in one place" />
+            <Summary title="Assigned" value={issues.filter((i) => !!i.assignee_id).length} helper="Developer context" />
           </>
         )}
       </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader><CardTitle>Sync trust</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>✔ Optimistic updates keep the UI fast.</p>
+            <p>✔ Conflict checks protect concurrent edits.</p>
+            <p>✔ Issue detail exposes a dedicated conflict review section when edits collide.</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Migration flow</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>Bring work in from Jira with connect, preview, mapping, progress, and validation.</p>
+            <Link href="/settings"><Button variant="outline">Open migration workspace</Button></Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Developer context</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>Use the CLI for repo-aware issue creation and the web for fast issue review.</p>
+            <Link href="/projects"><Button variant="outline">Go to issue list</Button></Link>
+          </CardContent>
+        </Card>
+      </div>
+
       {features.INSIGHTS ? (
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
-            <CardHeader><CardTitle>Velocity</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Delivery velocity</CardTitle></CardHeader>
             <CardContent className="text-sm">
               <p className="text-2xl font-semibold">{velocityQuery.data?.current ?? 0}</p>
-              <p className="text-muted-foreground">📈 Trend: {(velocityQuery.data?.trend ?? []).join(' → ') || 'No sprint data'}</p>
+              <p className="text-muted-foreground">Trend: {(velocityQuery.data?.trend ?? []).join(' → ') || 'No sprint data yet'}</p>
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Bottleneck</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Queue bottleneck</CardTitle></CardHeader>
             <CardContent className="text-sm">
               <p className="text-2xl font-semibold">{bottleneckQuery.data?.status || 'none'}</p>
-              <p className="text-muted-foreground">⚠️ Avg {Number(bottleneckQuery.data?.avg_days ?? 0).toFixed(1)} days</p>
+              <p className="text-muted-foreground">Avg {Number(bottleneckQuery.data?.avg_days ?? 0).toFixed(1)} days</p>
             </CardContent>
           </Card>
         </div>
@@ -76,8 +106,9 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       )}
+
       <Card>
-        <CardHeader><CardTitle>Activity feed</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Recent issue activity</CardTitle></CardHeader>
         <CardContent className="space-y-2 text-sm">
           {issuesQuery.isPending ? (
             <>
@@ -94,10 +125,10 @@ export default function DashboardPage() {
           )}
           {!issuesQuery.isPending && !issues.length ? (
             <EmptyState
-              title="No activity yet"
-              description="Create an issue to start tracking work on your board."
+              title="No issue activity yet"
+              description="Create an issue to start tracking work in the fastest path through the product."
               action={<Link href="/projects"><Button>Create issue</Button></Link>}
-              hint="Once created, updates and comments appear here in real time."
+              hint="Use the issue list as the default workspace for day-to-day work."
             />
           ) : null}
         </CardContent>
@@ -106,11 +137,14 @@ export default function DashboardPage() {
   );
 }
 
-function Summary({ title, value }: { title: string; value: number }) {
+function Summary({ title, value, helper }: { title: string; value: number; helper: string }) {
   return (
     <Card>
       <CardHeader><CardTitle>{title}</CardTitle></CardHeader>
-      <CardContent><div className="text-2xl font-semibold">{value}</div></CardContent>
+      <CardContent>
+        <div className="text-2xl font-semibold">{value}</div>
+        <div className="text-xs text-muted-foreground">{helper}</div>
+      </CardContent>
     </Card>
   );
 }

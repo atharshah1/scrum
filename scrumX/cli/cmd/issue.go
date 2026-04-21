@@ -2,6 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -12,17 +15,18 @@ import (
 
 var issueCmd = &cobra.Command{
 	Use:     "issue",
-	Aliases: []string{"issues", "is"},
+	Aliases: []string{"issues", "is", "i"},
 	Short:   "Issue management commands",
 }
 
 var issueCreateCmd = &cobra.Command{
-	Use:   "create <title>",
-	Short: "Create a new issue",
-	Args:  cobra.ExactArgs(1),
+	Use:     "create <title>",
+	Aliases: []string{"c"},
+	Short:   "Create a new issue",
+	Args:    cobra.ExactArgs(1),
 	Example: strings.TrimSpace(`
-  scrumx issue create "Fix login bug" --project-id <project-id> --priority high --type bug
-  scrumx issue create "Backend cleanup" --interactive
+  sx i c "fix login bug p1 assign me #auth"
+  sx i c "Backend cleanup" --interactive
 `),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
@@ -45,6 +49,33 @@ var issueCreateCmd = &cobra.Command{
 		sprintID, _ := cmd.Flags().GetString("sprint-id")
 		assigneeID, _ := cmd.Flags().GetString("assignee-id")
 		labelsFlag, _ := cmd.Flags().GetString("labels")
+		smart := parseSmartIssueInput(args[0], cfg.UserID)
+		title := smart.Title
+		if title == "" {
+			title = strings.TrimSpace(args[0])
+		}
+		if !cmd.Flags().Changed("priority") && smart.Priority != "" {
+			priority = smart.Priority
+		}
+		if !cmd.Flags().Changed("assignee-id") && smart.AssigneeID != "" {
+			assigneeID = smart.AssigneeID
+		}
+		if strings.TrimSpace(assigneeID) == "" {
+			assigneeID = strings.TrimSpace(cfg.UserID)
+		}
+		if strings.TrimSpace(description) == "" && strings.TrimSpace(smart.Description) != "" {
+			description = smart.Description
+		}
+		labels := parseCSV(labelsFlag)
+		if !cmd.Flags().Changed("labels") {
+			labels = append(labels, smart.Labels...)
+		}
+		labels = parseCSV(strings.Join(labels, ","))
+		if len(labels) == 0 {
+			if repoLabel := currentRepoLabel(); repoLabel != "" {
+				labels = []string{repoLabel}
+			}
+		}
 
 		if interactive {
 			if strings.TrimSpace(projectID) == "" {
@@ -87,7 +118,7 @@ var issueCreateCmd = &cobra.Command{
 			return fmt.Errorf("--project-id is required (or set context current_project_id)")
 		}
 		issue, err := client.CreateIssueSmart(api.CreateIssueInput{
-			Title:       args[0],
+			Title:       title,
 			ProjectID:   projectID,
 			Description: description,
 			IssueType:   issueType,
@@ -95,7 +126,7 @@ var issueCreateCmd = &cobra.Command{
 			ParentID:    parentID,
 			SprintID:    sprintID,
 			AssigneeID:  assigneeID,
-			Labels:      parseCSV(labelsFlag),
+			Labels:      labels,
 		})
 		if err != nil {
 			return err
@@ -106,12 +137,13 @@ var issueCreateCmd = &cobra.Command{
 }
 
 var issueListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List issues",
+	Use:     "list",
+	Aliases: []string{"l"},
+	Short:   "List issues",
 	Example: strings.TrimSpace(`
-  scrumx issue list
-  scrumx issue list --status in_progress --assignee-id <user-id>
-  scrumx issue list --sprint-id <sprint-id> --label backend --project-id <project-id>
+  sx i l
+  sx i l --status in_progress --assignee-id <user-id>
+  sx i l --sprint-id <sprint-id> --label backend --project-id <project-id>
 `),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
@@ -152,11 +184,11 @@ var issueListCmd = &cobra.Command{
 
 var issueSearchCmd = &cobra.Command{
 	Use:   "search <query>",
-	Short: "Search issues with query language (AND/OR, field=value)",
+	Short: "Search issues with filter syntax (AND/OR, field=value)",
 	Args:  cobra.ExactArgs(1),
 	Example: strings.TrimSpace(`
-  scrumx issue search "status=done AND assignee=me AND priority=high"
-  scrumx issue search "status=in_progress AND label=payments"
+  sx i search "status=done AND assignee=me AND priority=high"
+  sx i search "status=in_progress AND label=payments"
 `),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
@@ -183,9 +215,10 @@ var issueSearchCmd = &cobra.Command{
 }
 
 var issueViewCmd = &cobra.Command{
-	Use:   "view <issue-id>",
-	Short: "View an issue",
-	Args:  cobra.ExactArgs(1),
+	Use:     "view <issue-id>",
+	Aliases: []string{"v"},
+	Short:   "View an issue",
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
 		if err != nil {
@@ -215,12 +248,13 @@ var issueViewCmd = &cobra.Command{
 }
 
 var issueUpdateCmd = &cobra.Command{
-	Use:   "update <issue-id>",
-	Short: "Update issue fields",
-	Args:  cobra.ExactArgs(1),
+	Use:     "update <issue-id>",
+	Aliases: []string{"u"},
+	Short:   "Update issue fields",
+	Args:    cobra.ExactArgs(1),
 	Example: strings.TrimSpace(`
-  scrumx issue update <issue-id> --priority high --labels bug,customer
-  scrumx issue update <issue-id> --title "New title" --description "Updated details"
+  sx i u <issue-id> --priority high --labels bug,customer
+  sx i u <issue-id> --title "New title" --description "Updated details"
 `),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
@@ -354,9 +388,10 @@ var issueMoveCmd = &cobra.Command{
 }
 
 var issueDeleteCmd = &cobra.Command{
-	Use:   "delete <issue-id>",
-	Short: "Delete an issue (queues offline when disconnected)",
-	Args:  cobra.ExactArgs(1),
+	Use:     "delete <issue-id>",
+	Aliases: []string{"d", "rm"},
+	Short:   "Delete an issue (queues offline when disconnected)",
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
 		if err != nil {
@@ -759,7 +794,7 @@ func init() {
 	issueListCmd.Flags().String("sprint-id", "", "Filter by sprint UUID")
 	issueListCmd.Flags().String("label", "", "Filter by label")
 	issueListCmd.Flags().String("type", "", "Filter by issue type")
-	issueListCmd.Flags().String("query", "", "Search in issue titles/descriptions")
+	issueListCmd.Flags().String("query", "", "Filter text in issue titles/descriptions")
 	issueListCmd.Flags().String("sort-by", "", "Sort by field (created_at|updated_at|priority|status)")
 	issueListCmd.Flags().String("order", "", "Sort order (asc|desc)")
 	issueListCmd.Flags().Int("page", 1, "Page number")
@@ -788,6 +823,107 @@ func init() {
 	issueCommentAddCmd.Flags().String("body", "", "Comment text")
 	issueCommentListCmd.Flags().Int("page", 1, "Page number")
 	issueCommentListCmd.Flags().Int("limit", 20, "Page size")
+}
+
+type smartIssueInput struct {
+	Title       string
+	Description string
+	Priority    string
+	AssigneeID  string
+	Labels      []string
+}
+
+func parseSmartIssueInput(raw, currentUserID string) smartIssueInput {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	if len(fields) == 0 {
+		return smartIssueInput{}
+	}
+	titleParts := make([]string, 0, len(fields))
+	labels := make([]string, 0, 4)
+	seenLabels := map[string]struct{}{}
+	out := smartIssueInput{}
+	appendLabel := func(value string) {
+		for _, label := range parseCSV(value) {
+			if _, ok := seenLabels[label]; ok {
+				continue
+			}
+			seenLabels[label] = struct{}{}
+			labels = append(labels, label)
+		}
+	}
+	for i := 0; i < len(fields); i++ {
+		token := strings.TrimSpace(fields[i])
+		normalized := strings.ToLower(token)
+		switch normalized {
+		case "assign", "assignee":
+			if i+1 < len(fields) {
+				i++
+				assignee := strings.TrimSpace(fields[i])
+				if strings.EqualFold(assignee, "me") || assignee == "@me" {
+					out.AssigneeID = strings.TrimSpace(currentUserID)
+				} else {
+					out.AssigneeID = assignee
+				}
+				continue
+			}
+		case "label", "labels":
+			if i+1 < len(fields) {
+				i++
+				appendLabel(fields[i])
+				continue
+			}
+		case "desc", "description":
+			if i+1 < len(fields) {
+				out.Description = strings.Join(fields[i+1:], " ")
+				i = len(fields)
+				continue
+			}
+		}
+		if mapped := smartPriority(normalized); mapped != "" {
+			out.Priority = mapped
+			continue
+		}
+		if strings.HasPrefix(token, "#") {
+			appendLabel(strings.TrimPrefix(token, "#"))
+			continue
+		}
+		titleParts = append(titleParts, token)
+	}
+	out.Title = strings.TrimSpace(strings.Join(titleParts, " "))
+	out.Labels = labels
+	return out
+}
+
+func smartPriority(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "p1", "critical":
+		return "critical"
+	case "p2", "high":
+		return "high"
+	case "p3", "medium":
+		return "medium"
+	case "p4", "low":
+		return "low"
+	default:
+		return ""
+	}
+}
+
+var repoNameSanitizer = regexp.MustCompile(`[^a-z0-9._-]+`)
+
+func currentRepoLabel() string {
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	name := strings.ToLower(strings.TrimSpace(filepath.Base(strings.TrimSpace(string(output)))))
+	name = repoNameSanitizer.ReplaceAllString(name, "-")
+	name = strings.Trim(name, "-.")
+	if name == "" {
+		return ""
+	}
+	return "repo:" + name
 }
 
 func parseCSV(in string) []string {

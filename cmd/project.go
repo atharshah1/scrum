@@ -14,15 +14,14 @@ import (
 var projectCmd = &cobra.Command{
 	Use:   "project",
 	Short: "Manage project context",
-	Long: `Manage Jira project contexts.
-Switching projects sets a local context so you don't have to specify
-the project key for every issue command.`,
+	Long: `Manage the legacy source project context used by the migration bridge.
+Switching projects sets the default source project for legacy issue commands.`,
 }
 
 var projectLsCmd = &cobra.Command{
 	Use:   "ls",
 	Short: "List available projects",
-	Long:  `Display a list of all Jira projects available to your account.`,
+	Long:  `Display source projects available to your connected Atlassian account.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		client := &jira.Client{}
 		projects, err := client.GetProjects()
@@ -45,8 +44,8 @@ var projectLsCmd = &cobra.Command{
 
 var projectCreateCmd = &cobra.Command{
 	Use:   "create",
-	Short: "Create a new Jira project",
-	Long: `Create a new project in Jira.
+	Short: "Create a legacy source project",
+	Long: `Create a new project in the connected Atlassian source.
 You will be prompted for a project key, name, and lead if not provided via flags.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		key, _ := cmd.Flags().GetString("key")
@@ -158,10 +157,9 @@ You will be prompted for a project key, name, and lead if not provided via flags
 var projectSwitchCmd = &cobra.Command{
 	Use:   "switch [KEY]",
 	Short: "Switch project context",
-	Long: `Set the active project context for the CLI.
-This saves the project key locally, which is used as the default for
-creating and listing issues.`,
-	Args:  cobra.MaximumNArgs(1),
+	Long: `Set the active source project context for the legacy CLI.
+This saves the project key locally for legacy create/list flows.`,
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		var key string
 		if len(args) > 0 {

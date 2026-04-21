@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var contextCmd = &cobra.Command{Use: "context", Short: "Manage active org/project/board context"}
+var contextCmd = &cobra.Command{Use: "context", Aliases: []string{"ctx"}, Short: "Manage active org/project/board context"}
 
 var contextViewCmd = &cobra.Command{
 	Use:   "view",

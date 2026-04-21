@@ -6,21 +6,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-
-
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "scrum",
-	Short: "A CLI tool for managing Jira Scrum projects",
-	Long: `Scrum CLI is a terminal-based tool for interacting with Jira.
-It allows you to manage projects, issues, comments, and transitions
-without leaving your command line interface.
+	Short: "Legacy Atlassian migration helper",
+	Long: `scrum is the legacy migration bridge kept for Atlassian import and handoff work.
+For day-to-day issue triage, offline-safe sync, and conflict protection, use scrumx instead.
 
-Start by logging in:
+Typical legacy flow:
   scrum auth login
+  scrum project switch
+  scrum issue ls
 
-Then switch to a project:
-  scrum project switch`,
+Primary product:
+  scrumx --help`,
 	CompletionOptions: cobra.CompletionOptions{
 		DisableDefaultCmd: true,
 	},
