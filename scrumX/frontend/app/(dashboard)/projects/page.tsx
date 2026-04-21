@@ -30,7 +30,6 @@ export default function ProjectsPage() {
   const conflictIssueIds = useAppStore((s) => s.conflictIssueIds);
   const beginPendingAction = useAppStore((s) => s.beginPendingAction);
   const finishPendingAction = useAppStore((s) => s.finishPendingAction);
-  const registerConflictIssue = useAppStore((s) => s.registerConflictIssue);
   const clearConflictIssue = useAppStore((s) => s.clearConflictIssue);
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
