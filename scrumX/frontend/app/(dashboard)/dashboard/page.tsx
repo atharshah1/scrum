@@ -35,8 +35,26 @@ export default function DashboardPage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold">Workspace</h1>
-        <p className="text-sm text-muted-foreground">Speed and safety first: issue flow, sync trust, and conflict awareness.</p>
+        <p className="text-sm text-muted-foreground">Speed and safety first: zero data loss, visible trust state, and instant conflict resolution.</p>
       </div>
+
+      <Card className="border-blue-200 bg-blue-50/40">
+        <CardHeader><CardTitle>60-second zero-data-loss demo</CardTitle></CardHeader>
+        <CardContent className="space-y-3 text-sm text-blue-950">
+          <p>Run the full product promise in one loop: create → edit → queue or sync → hit a conflict → resolve safely → confirm the final state.</p>
+          <div className="grid gap-2 md:grid-cols-5">
+            <Summary title="1" value={1} helper="Create issue" />
+            <Summary title="2" value={2} helper="Edit fast" />
+            <Summary title="3" value={3} helper="Queue or sync" />
+            <Summary title="4" value={4} helper="Resolve conflict" />
+            <Summary title="5" value={5} helper="Confirm safe result" />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/projects?focus=create"><Button>Start demo in workspace</Button></Link>
+            <Link href="/settings"><Button variant="outline">Migration stays secondary</Button></Link>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-4">
         {issuesQuery.isPending ? (
@@ -57,14 +75,14 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader><CardTitle>Sync trust</CardTitle></CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>✔ Optimistic updates keep the UI fast.</p>
-            <p>✔ Conflict checks protect concurrent edits.</p>
-            <p>✔ Issue detail exposes a dedicated conflict review section when edits collide.</p>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader><CardTitle>Sync trust</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <p>✔ Zero data loss stays visible in the top bar, trust bar, CLI, and TUI.</p>
+              <p>✔ Safe offline and safe sync status stay visible before anything can overwrite work.</p>
+              <p>✔ Conflict review exposes one-click local, remote, or merge resolution.</p>
+            </CardContent>
+          </Card>
         <Card>
           <CardHeader><CardTitle>Migration flow</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
@@ -119,7 +137,10 @@ export default function DashboardPage() {
           ) : (
             issues.slice(0, 8).map((issue) => (
               <Link key={issue.id} className="block rounded-md border p-2 hover:bg-accent" href={`/issues/${issue.id}`}>
-                {issue.title}
+                <div className="flex items-center justify-between gap-2">
+                  <span>{issue.title}</span>
+                  <span className="text-xs text-muted-foreground">{issue.status}</span>
+                </div>
               </Link>
             ))
           )}

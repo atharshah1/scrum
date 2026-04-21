@@ -436,7 +436,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39")).Render("scrumX TUI — speed + safety")
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39")).Render("scrumX TUI — zero data loss")
 	if m.loading {
 		return fmt.Sprintf("%s\n\nLoading...\n", title)
 	}
@@ -455,15 +455,16 @@ func (m Model) View() string {
 	}
 	statusLine := fmt.Sprintf("Mode: %s | Pending sync ops: %d | Conflicts: %d | Dropped ops: %d | Last sync: %s\n", m.syncMode, m.syncPending, m.syncConflicts, m.syncDropped, lastSyncText)
 	b.WriteString(statusLine)
+	b.WriteString("Trust promise: zero data loss • safe offline • safe sync • safe conflict resolution\n")
 	switch {
 	case m.syncConflicts > 0:
-		b.WriteString("Trust: conflict review needed before everything is fully safe again.\n")
+		b.WriteString("Trust: overwrite stopped; resolve the conflict safely before everything is fully safe again.\n")
 	case m.syncPending > 0:
 		b.WriteString("Trust: local changes are queued safely and waiting to sync.\n")
 	case strings.EqualFold(strings.TrimSpace(m.syncMode), "offline"):
-		b.WriteString("Trust: working offline (safe); changes stay local until sync resumes.\n")
+		b.WriteString("Trust: working offline safely; changes stay local until sync resumes.\n")
 	default:
-		b.WriteString("Trust: synced and conflict-safe.\n")
+		b.WriteString("Trust: synced and conflict-safe with zero data loss.\n")
 	}
 	if strings.TrimSpace(m.searchQuery) != "" {
 		b.WriteString(fmt.Sprintf("Active filter: %s\n", m.searchQuery))

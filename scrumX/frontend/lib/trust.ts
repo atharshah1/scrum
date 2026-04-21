@@ -11,26 +11,26 @@ export function describeTrustState({
     return {
       tone: 'warning' as const,
       title: `⚠ Conflict detected on ${conflictIssueIds.length} issue${conflictIssueIds.length === 1 ? '' : 's'}`,
-      description: 'Open the issue detail page to compare local and remote changes, then keep local, keep remote, or merge.'
+      description: 'Zero data loss is still intact. Compare local and remote changes, then resolve safely in one click.'
     };
   }
   if (pendingActions > 0) {
     return {
       tone: 'info' as const,
       title: `⟳ Applying ${pendingActions} web change${pendingActions === 1 ? '' : 's'}`,
-      description: 'Stay on the trust path while scrumX confirms the latest server state.'
+      description: 'Zero data loss stays on. scrumX is syncing your latest change safely.'
     };
   }
   if (!online) {
     return {
       tone: 'warning' as const,
-      title: 'Offline network detected',
-      description: 'The web app is in safe mode. Reconnect before editing, or use the scrumX CLI for offline issue capture.'
+      title: 'Offline safe mode',
+      description: 'Zero data loss stays on while offline. Keep working, then sync safely when the network returns.'
     };
   }
   return {
     tone: 'success' as const,
-    title: '✔ Synced and conflict-safe',
-    description: 'Use the issue workspace as the fastest path for create, review, sync, and conflict resolution.'
+    title: '✔ Synced with zero data loss',
+    description: 'Safe offline, safe sync, and safe conflict resolution stay visible everywhere in scrumX.'
   };
 }

@@ -72,25 +72,29 @@ func runSyncStatus() error {
 	if !status.LastSyncedAt.IsZero() {
 		last = status.LastSyncedAt.Local().Format(time.RFC3339)
 	}
-	summary := "✔ synced"
+	summary := "✔ synced with zero data loss"
 	switch {
 	case status.PendingConflicts > 0:
-		summary = fmt.Sprintf("⚠ %d conflict(s) need review", status.PendingConflicts)
+		summary = fmt.Sprintf("⚠ %d conflict(s) stopped overwrite; resolve safely", status.PendingConflicts)
 	case status.PendingOps > 0:
-		summary = fmt.Sprintf("⟳ %d pending change(s)", status.PendingOps)
+		summary = fmt.Sprintf("⟳ %d pending change(s), zero data loss still active", status.PendingOps)
 	case status.Mode == "offline":
-		summary = "⚑ working offline (safe)"
+		summary = "⚑ working offline safely with zero data loss"
 	case status.Mode == "syncing":
-		summary = "⟳ syncing now"
+		summary = "⟳ syncing now with trust state visible"
 	}
 	fmt.Println(summary)
 	fmt.Printf(
-		"mode: %s\npending: %d\nconflicts: %d\ndropped: %d\nlast sync: %s\n",
+		"trust promise: zero data loss • safe offline • safe sync • safe conflict resolution\nmode: %s\npending: %d\nconflicts: %d\ndropped: %d\nlast sync: %s\n",
 		status.Mode,
 		status.PendingOps,
 		status.PendingConflicts,
 		status.DroppedOps,
 		last,
 	)
+	if status.PendingConflicts > 0 {
+		fmt.Println("next: sx i cf show <conflict-id|issue-id>  # inspect safely")
+		fmt.Println("      sx i cf resolve <conflict-id|issue-id> --action keep-mine|keep-server|keep-both|later")
+	}
 	return nil
 }

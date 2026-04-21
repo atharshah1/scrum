@@ -29,14 +29,17 @@ make down
 
 ## Proven workflow to exercise first
 
-Use one vertical slice before exploring preview surfaces:
+Use one vertical slice before exploring preview surfaces. This is the entire product promise:
 
 1. Open the issue workspace in the web app.
 2. Select or enter a project id.
 3. Create an issue.
-4. Open the issue detail page and edit title, description, labels, or status.
-5. If a concurrent edit creates a conflict, use the conflict review card to keep local, keep remote, or merge.
-6. Use the CLI trust surface to inspect offline/sync/conflict state:
+4. Edit the issue immediately so the trust state shows safe pending changes.
+5. Go offline or force the CLI into offline capture, then confirm scrumX keeps zero data loss visible.
+6. Re-open the issue in another surface, trigger a concurrent change, and let scrumX catch the conflict before overwrite.
+7. Use the conflict review card to keep local, keep remote, or merge.
+8. Confirm the final state is safe and reflected everywhere.
+9. Use the CLI trust surface to inspect offline/sync/conflict state:
 
 ```bash
 cd /home/runner/work/scrum/scrum
@@ -54,3 +57,10 @@ The following areas are intentionally marked as preview surfaces until they are 
 - incidents
 
 Use them for exploration, but treat issue create → sync → conflict → resolve as the default daily workflow.
+
+Core trust promise to repeat in demos and docs:
+
+- zero data loss
+- safe offline
+- safe sync
+- safe conflict resolution

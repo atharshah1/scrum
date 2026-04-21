@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { BoardView } from '@/components/board/board-view';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { apiRequest } from '@/lib/api';
 import { comingSoonContent, features } from '@/lib/features';
 import { qk } from '@/lib/query-keys';
+import { useAppStore } from '@/store/useAppStore';
 import type { Board, StuckInsightResponse, WorkflowTransition } from '@/types';
 
 const STUCK_THRESHOLD_DAYS = 2;
@@ -24,9 +25,11 @@ const defaultTransitions: WorkflowTransition[] = [
 
 export default function BoardPage() {
   const params = useParams<{ projectId: string }>();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const boardId = searchParams.get('boardId') ?? params.projectId;
   const [showOnlyStuck, setShowOnlyStuck] = useState(false);
+  const conflictIssueIds = useAppStore((state) => state.conflictIssueIds);
 
   const boardQuery = useQuery({
     queryKey: qk.board(boardId),
@@ -92,6 +95,12 @@ export default function BoardPage() {
 
   return (
     <div className="space-y-3">
+      <Card className="border-blue-200 bg-blue-50/40">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm text-blue-950">
+          <span>Board trust path: drag fast, keep zero data loss visible, and jump straight into conflict resolution when scrumX catches a race.</span>
+          {conflictIssueIds[0] ? <Button size="sm" onClick={() => router.push(`/issues/${conflictIssueIds[0]}`)}>Resolve highlighted conflict</Button> : null}
+        </CardContent>
+      </Card>
       {!features.INSIGHTS ? (
         <Card>
           <CardContent className="p-3 text-sm text-muted-foreground">

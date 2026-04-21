@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import type { Issue } from '@/types';
 
 export default function ProjectsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
   const setSelectedProject = useAppStore((s) => s.setSelectedProject);
   const filters = useAppStore((s) => s.issueFilters);
@@ -35,6 +36,7 @@ export default function ProjectsPage() {
   const user = useAuthStore((s) => s.user);
   const isAdmin = isAdminRole(user?.role);
   const [activeIndex, setActiveIndex] = useState(0);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
   const createIssueForm = useFormFields(
     { title: '', description: '' },
     {
@@ -97,11 +99,22 @@ export default function ProjectsPage() {
   const issues = useMemo(() => issuesQuery.data ?? [], [issuesQuery.data]);
 
   useEffect(() => {
+    if (searchParams.get('focus') === 'create') {
+      titleInputRef.current?.focus();
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const isTypingTarget =
         target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
-      if (isTypingTarget || event.ctrlKey || event.metaKey || event.altKey) return;
+      if ((isTypingTarget && event.key !== 'Escape') || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key.toLowerCase() === 'c') {
+        event.preventDefault();
+        titleInputRef.current?.focus();
+        return;
+      }
       if (!issues.length) return;
       if (event.key.toLowerCase() === 'j') {
         event.preventDefault();
@@ -123,20 +136,32 @@ export default function ProjectsPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Issue workspace</h1>
-      <p className="text-xs text-muted-foreground">Keyboard: J/K to move, Enter to open the selected issue.</p>
+      <p className="text-xs text-muted-foreground">Keyboard: C create, / filter from top bar, J/K move, Enter open, T jump to trust action.</p>
       {conflictIssueIds.length > 0 ? (
         <Card className="border-amber-200 bg-amber-50/60">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-amber-950">
             <div>
-              <div className="font-medium">⚠ Conflict detected in the main issue workspace</div>
-              <p className="text-amber-900/80">Open the issue detail page for guided local vs remote resolution.</p>
+              <div className="font-medium">⚠ Zero data loss protected your work</div>
+              <p className="text-amber-900/80">A conflict was caught before overwrite. Open the issue detail page for instant local vs remote resolution.</p>
             </div>
             <Link href={`/issues/${conflictIssueIds[0]}`}>
-              <Button size="sm">Resolve first conflict</Button>
+              <Button size="sm">Resolve safely now</Button>
             </Link>
           </CardContent>
         </Card>
       ) : null}
+      <Card className="border-blue-200 bg-blue-50/40">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-blue-950">
+          <div>
+            <div className="font-medium">60-second proof loop</div>
+            <p className="text-blue-900/80">Create an issue, make a fast edit, force a conflict, resolve it, and watch scrumX keep zero data loss visible the whole time.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => titleInputRef.current?.focus()}>Start with create</Button>
+            <Link href="/dashboard"><Button size="sm">Open guided demo</Button></Link>
+          </div>
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader><CardTitle>Filters</CardTitle></CardHeader>
         <CardContent className="grid gap-2 md:grid-cols-4">
@@ -159,21 +184,28 @@ export default function ProjectsPage() {
 
       <Card>
         <CardHeader><CardTitle>Create issue</CardTitle></CardHeader>
-        <CardContent className="grid gap-2 md:grid-cols-[1fr_2fr_auto]">
-          <div>
-            <Input placeholder="Issue title" value={createIssueForm.values.title} onChange={(e) => createIssueForm.setField('title', e.target.value)} />
-            {createIssueForm.errors.title ? <p className="mt-1 text-xs text-red-600">{createIssueForm.errors.title}</p> : null}
-          </div>
-          <Input placeholder="Description" value={createIssueForm.values.description} onChange={(e) => createIssueForm.setField('description', e.target.value)} />
-          <Button
-            disabled={!selectedProjectId || createIssue.isPending || !createIssueForm.isValid || !isAdmin}
-            onClick={() => {
+        <CardContent>
+          <form
+            className="grid gap-2 md:grid-cols-[1fr_2fr_auto]"
+            onSubmit={(event) => {
+              event.preventDefault();
               if (!createIssueForm.validate()) return;
               createIssue.mutate();
             }}
           >
-            {isAdmin ? 'Create' : 'Admin only'}
-          </Button>
+            <div>
+              <Input ref={titleInputRef} placeholder="Issue title" value={createIssueForm.values.title} onChange={(e) => createIssueForm.setField('title', e.target.value)} />
+              {createIssueForm.errors.title ? <p className="mt-1 text-xs text-red-600">{createIssueForm.errors.title}</p> : null}
+            </div>
+            <Input placeholder="Description" value={createIssueForm.values.description} onChange={(e) => createIssueForm.setField('description', e.target.value)} />
+            <Button
+              type="submit"
+              disabled={!selectedProjectId || createIssue.isPending || !createIssueForm.isValid || !isAdmin}
+            >
+              {isAdmin ? 'Create' : 'Admin only'}
+            </Button>
+          </form>
+          <p className="mt-2 text-xs text-muted-foreground">Press C to jump here. Press Enter to create once the title is ready.</p>
         </CardContent>
       </Card>
 
@@ -274,11 +306,11 @@ function IssueRow({ issue, active, filterKey }: { issue: Issue; active: boolean;
   });
 
   return (
-    <div className={`group rounded-md border p-3 ${active ? 'ring-2 ring-blue-200' : ''} ${hasConflict ? 'border-amber-300 bg-amber-50/50' : ''}`}>
+    <div className={`group rounded-md border p-3 ${active ? 'ring-2 ring-blue-200' : ''} ${hasConflict ? 'border-amber-300 bg-amber-50/50 ring-2 ring-amber-200' : ''}`}>
       <Link href={`/issues/${issue.id}`} className="block hover:underline">
         <div className="flex items-center gap-2 font-medium">
           <span>{issue.title}</span>
-          {hasConflict ? <Badge className="border-amber-200 bg-amber-100 text-amber-900">⚠ conflict detected</Badge> : null}
+          {hasConflict ? <Badge className="border-amber-200 bg-amber-100 text-amber-900">⚠ zero-data-loss conflict</Badge> : null}
         </div>
       </Link>
       <div className="text-xs text-muted-foreground">{issue.status}</div>

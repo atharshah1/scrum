@@ -17,9 +17,9 @@ var (
 var rootCmd = &cobra.Command{
 	Use:     "scrumx",
 	Aliases: []string{"sx"},
-	Short:   "Developer-first, offline-safe task CLI",
-	Long: `scrumX is built for fast task work with offline safety, sync visibility,
-and Git-like conflict protection.
+	Short:   "Developer-first task CLI with zero-data-loss trust state",
+	Long: `scrumX is built for fast task work with zero data loss, safe offline capture,
+	visible sync trust, and safe conflict resolution.
 
 Core daily flow:
   sx i c "fix login bug p1 assign me #auth"

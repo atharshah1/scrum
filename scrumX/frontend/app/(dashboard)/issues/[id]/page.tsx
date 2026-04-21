@@ -225,7 +225,7 @@ export default function IssueDetailPage() {
           <Card className="border-amber-200 bg-amber-50/60">
             <CardHeader><CardTitle>⚠ Conflict detected</CardTitle></CardHeader>
             <CardContent className="text-sm text-amber-950/80">
-              A quick action from another surface hit an optimistic-lock conflict. Re-apply the intended change here to compare local and remote values safely.
+              Zero data loss protected your edit. A quick action from another surface hit an optimistic-lock conflict, so scrumX stopped the overwrite and brought you here to resolve safely.
             </CardContent>
           </Card>
         ) : null}
@@ -284,7 +284,7 @@ export default function IssueDetailPage() {
 
             <div className="flex items-center gap-2">
               <Badge>{issue?.status ?? 'unknown'}</Badge>
-              <Badge className="border-emerald-200 text-emerald-700">Conflict-safe editing</Badge>
+              <Badge className="border-emerald-200 text-emerald-700">Zero-data-loss editing</Badge>
               {features.INSIGHTS ? <Badge>⏱ Cycle time: {(cycleTimeQuery.data?.avg_days ?? 0).toFixed(1)} days</Badge> : null}
             </div>
 
@@ -322,16 +322,18 @@ export default function IssueDetailPage() {
 
         {conflictPreview && issue && conflictSuggestion ? (
           <Card className="border-amber-200 bg-amber-50/60">
-            <CardHeader className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className="border-amber-200 bg-amber-100 text-amber-900">⚠ Conflict detected</Badge>
-                <Badge className="border-blue-200 bg-blue-100 text-blue-900">Suggested: {conflictSuggestion.label}</Badge>
-              </div>
-              <CardTitle>Conflict review</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm">
-              <p className="text-amber-950/80">{conflictSuggestion.reason}</p>
-              {conflictSuggestion.preview.length > 0 ? (
+              <CardHeader className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="border-amber-200 bg-amber-100 text-amber-900">⚠ Conflict detected</Badge>
+                  <Badge className="border-blue-200 bg-blue-100 text-blue-900">Suggested: {conflictSuggestion.label}</Badge>
+                  <Badge className="border-emerald-200 bg-emerald-100 text-emerald-900">Zero data loss protected this edit</Badge>
+                </div>
+                <CardTitle>Conflict review</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                <p className="text-amber-950/80">{conflictSuggestion.reason}</p>
+                <p className="font-medium text-amber-950">Nothing was overwritten. Choose what to keep and scrumX will preserve the final safe state.</p>
+                {conflictSuggestion.preview.length > 0 ? (
                 <div className="rounded-md border border-blue-200 bg-blue-50/80 p-3">
                   <div className="mb-2 text-xs font-medium uppercase tracking-wide text-blue-900">Auto-merge preview</div>
                   <div className="space-y-2">
@@ -344,7 +346,7 @@ export default function IssueDetailPage() {
                   </div>
                 </div>
               ) : null}
-              <p className="text-muted-foreground">Compare your local change with the latest remote value, then keep local, keep remote, or merge.</p>
+              <p className="text-muted-foreground">Compare your local change with the latest remote value, then keep local, keep remote, or merge. The recommended action is designed to feel instant.</p>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-md border p-3">
                   <div className="mb-2 text-xs font-medium text-muted-foreground">LOCAL CHANGE</div>

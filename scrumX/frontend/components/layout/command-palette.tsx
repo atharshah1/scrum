@@ -31,32 +31,90 @@ export function CommandPalette() {
   useEffect(() => {
     let pendingGo = false;
     const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTypingTarget =
+        target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
+
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         setOpen(!isOpen);
+        return;
       }
-      if (!event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'g') {
+
+      if (event.key === 'Escape') {
+        setOpen(false);
+        pendingGo = false;
+        return;
+      }
+
+      if (isTypingTarget || event.ctrlKey || event.metaKey || event.altKey) {
+        pendingGo = false;
+        return;
+      }
+
+      if (event.key === '/') {
+        event.preventDefault();
+        document.querySelector<HTMLInputElement>('[data-topbar-search="true"]')?.focus();
+        pendingGo = false;
+        return;
+      }
+
+      if (event.key.toLowerCase() === 'c') {
+        event.preventDefault();
+        router.push('/projects?focus=create');
+        setOpen(false);
+        pendingGo = false;
+        return;
+      }
+
+      if (event.key.toLowerCase() === 't') {
+        event.preventDefault();
+        router.push(conflictIssueIds[0] ? `/issues/${conflictIssueIds[0]}` : '/dashboard');
+        setOpen(false);
+        pendingGo = false;
+        return;
+      }
+
+      if (event.key.toLowerCase() === 'g') {
         pendingGo = true;
         return;
       }
-      if (pendingGo && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'p') {
+
+      if (pendingGo && event.key.toLowerCase() === 'i') {
         event.preventDefault();
         router.push('/projects');
         setOpen(false);
+        pendingGo = false;
+        return;
       }
-      if (pendingGo && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 's') {
+
+      if (pendingGo && event.key.toLowerCase() === 'w') {
+        event.preventDefault();
+        router.push('/dashboard');
+        setOpen(false);
+        pendingGo = false;
+        return;
+      }
+
+      if (pendingGo && event.key.toLowerCase() === 'b') {
+        event.preventDefault();
+        router.push(selectedProjectId ? `/board/${selectedProjectId}` : '/board/default');
+        setOpen(false);
+        pendingGo = false;
+        return;
+      }
+
+      if (pendingGo && event.key.toLowerCase() === 's') {
         event.preventDefault();
         router.push('/settings');
         setOpen(false);
       }
+
       pendingGo = false;
-      if (event.key === 'Escape') {
-        setOpen(false);
-      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, router, setOpen]);
+  }, [conflictIssueIds, isOpen, router, selectedProjectId, setOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -65,59 +123,64 @@ export function CommandPalette() {
     setSelectedIndex(0);
   }, [isOpen, query]);
 
-  const actions = useMemo(
-    () => {
-      const staticActions = [
-        { id: 'create-issue', label: 'Create issue', action: () => router.push('/projects') },
-        { id: 'open-issues', label: 'Open issue list', action: () => router.push('/projects') },
-        { id: 'open-board', label: 'Open board', action: () => router.push(selectedProjectId ? `/board/${selectedProjectId}` : '/board/default') },
-        { id: 'open-workspace', label: 'Open workspace', action: () => router.push('/dashboard') },
-        { id: 'open-migration', label: 'Open migration flow', action: () => router.push('/settings') }
-      ];
-      const trustActions = [
-        ...(pendingActions > 0
-          ? [{
-              id: 'trust-pending',
-              label: `Review ${pendingActions} pending web change${pendingActions === 1 ? '' : 's'}`,
-              action: () => router.push('/dashboard')
-            }]
-          : []),
-        ...conflictIssueIds.map((issueId) => ({
-          id: `conflict-${issueId}`,
-          label: `Resolve conflict on issue ${issueId}`,
-          action: () => router.push(`/issues/${issueId}`)
-        }))
-      ];
-      const dynamicSaved = (savedQueries.data ?? []).slice(0, 8).map((item) => ({
-        id: `saved-${item.id}`,
-        label: `Saved filter: ${item.name}`,
-        action: () => {
-          setJqlSearch(item.query);
-          router.push('/projects');
-        }
-      }));
-      const dynamicRecent = (recentQueries.data ?? []).slice(0, 8).map((item, i) => ({
-        id: `recent-${i}`,
-        label: `Recent filter: ${item.query}`,
-        action: () => {
-          setJqlSearch(item.query);
-          router.push('/projects');
-        }
-      }));
-      const searchAction = query.trim()
+  const actions = useMemo(() => {
+    const staticActions = [
+      { id: 'create-issue', label: 'Create issue (C)', action: () => router.push('/projects?focus=create') },
+      { id: 'open-issues', label: 'Open issue list (G I)', action: () => router.push('/projects') },
+      { id: 'open-workspace', label: 'Open workspace (G W)', action: () => router.push('/dashboard') },
+      { id: 'open-board', label: 'Open board (G B)', action: () => router.push(selectedProjectId ? `/board/${selectedProjectId}` : '/board/default') },
+      { id: 'open-migration', label: 'Open migration flow (G S)', action: () => router.push('/settings') },
+      { id: 'focus-search', label: 'Focus issue filter (/)', action: () => document.querySelector<HTMLInputElement>('[data-topbar-search="true"]')?.focus() }
+    ];
+    const trustActions = [
+      ...(pendingActions > 0
         ? [{
-            id: 'search-issues',
-            label: `Filter issues: ${query.trim()}`,
-            action: () => {
-              setJqlSearch(query.trim());
-              router.push('/projects');
-            }
+            id: 'trust-pending',
+            label: `Review ${pendingActions} safe pending change${pendingActions === 1 ? '' : 's'}`,
+            action: () => router.push('/dashboard')
           }]
-        : [];
-      return [...trustActions, ...searchAction, ...dynamicSaved, ...dynamicRecent, ...staticActions];
-    },
-    [conflictIssueIds, pendingActions, query, recentQueries.data, router, savedQueries.data, selectedProjectId, setJqlSearch]
-  );
+        : []),
+      ...(conflictIssueIds.length > 0
+        ? [{
+            id: 'trust-first-conflict',
+            label: 'Resolve first conflict safely (T)',
+            action: () => router.push(`/issues/${conflictIssueIds[0]}`)
+          }]
+        : []),
+      ...conflictIssueIds.map((issueId) => ({
+        id: `conflict-${issueId}`,
+        label: `Resolve conflict on issue ${issueId}`,
+        action: () => router.push(`/issues/${issueId}`)
+      }))
+    ];
+    const dynamicSaved = (savedQueries.data ?? []).slice(0, 8).map((item) => ({
+      id: `saved-${item.id}`,
+      label: `Saved filter: ${item.name}`,
+      action: () => {
+        setJqlSearch(item.query);
+        router.push('/projects');
+      }
+    }));
+    const dynamicRecent = (recentQueries.data ?? []).slice(0, 8).map((item, i) => ({
+      id: `recent-${i}`,
+      label: `Recent filter: ${item.query}`,
+      action: () => {
+        setJqlSearch(item.query);
+        router.push('/projects');
+      }
+    }));
+    const searchAction = query.trim()
+      ? [{
+          id: 'search-issues',
+          label: `Filter issues: ${query.trim()}`,
+          action: () => {
+            setJqlSearch(query.trim());
+            router.push('/projects');
+          }
+        }]
+      : [];
+    return [...trustActions, ...searchAction, ...dynamicSaved, ...dynamicRecent, ...staticActions];
+  }, [conflictIssueIds, pendingActions, query, recentQueries.data, router, savedQueries.data, selectedProjectId, setJqlSearch]);
 
   const filteredActions = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -168,7 +231,7 @@ export function CommandPalette() {
           </button>
         ))}
         <p className="px-3 py-2 text-xs text-muted-foreground">
-          ⌘/Ctrl+K to open • ↑/↓ then Enter to run • trust actions stay pinned to the top
+          ⌘/Ctrl+K open • G I/W/B/S navigate • C create • / focus filter • T open trust action • ↑/↓ then Enter to run
         </p>
       </div>
     </div>

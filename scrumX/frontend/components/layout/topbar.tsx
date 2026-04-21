@@ -112,6 +112,7 @@ export function Topbar() {
       <div className="relative flex w-[42rem] items-center gap-2 rounded-md border px-2">
         <Search className="h-4 w-4 text-muted-foreground" />
         <Input
+          data-topbar-search="true"
           className="border-0 p-0 shadow-none focus-visible:ring-0"
           value={jqlSearch}
           onFocus={() => setShowMenu(true)}
@@ -204,15 +205,15 @@ export function Topbar() {
       <div className="flex items-center gap-2 text-sm">
         <Badge className={online ? 'border-emerald-200 text-emerald-700' : 'border-amber-200 text-amber-700'}>
           {online ? <Wifi className="mr-1 h-3.5 w-3.5" /> : <WifiOff className="mr-1 h-3.5 w-3.5" />}
-          {online ? 'Web connection live' : 'Offline safe mode'}
+          {online ? 'Safe sync live' : 'Offline safe mode'}
         </Badge>
         <Badge className={pendingActions > 0 ? 'border-blue-200 text-blue-700' : 'border-slate-200 text-slate-700'}>
           <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-          {pendingActions > 0 ? `${pendingActions} pending web change${pendingActions === 1 ? '' : 's'}` : 'No pending web changes'}
+          {pendingActions > 0 ? `${pendingActions} safe pending change${pendingActions === 1 ? '' : 's'}` : 'Zero data loss active'}
         </Badge>
         {conflictIssueIds.length > 0 ? (
           <Button size="sm" onClick={() => router.push(`/issues/${conflictIssueIds[0]}`)}>
-            ⚠ {conflictIssueIds.length} conflict{conflictIssueIds.length === 1 ? '' : 's'}
+            ⚠ Resolve {conflictIssueIds.length} conflict{conflictIssueIds.length === 1 ? '' : 's'}
           </Button>
         ) : (
           <Badge className="border-blue-200 text-blue-700">Conflict-safe edits</Badge>

@@ -41,14 +41,18 @@ export function TrustBar() {
             <span className="font-medium">{trust.title}</span>
           </div>
           <p className="text-current/80">{trust.description}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-current/70">Zero data loss • safe offline • safe sync • safe conflict resolution</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link href="/projects">
             <Button size="sm" variant="outline">Issue workspace</Button>
           </Link>
+          <Link href="/dashboard">
+            <Button size="sm" variant="outline">Run 60-second demo</Button>
+          </Link>
           {firstConflictIssueId ? (
             <Link href={`/issues/${firstConflictIssueId}`}>
-              <Button size="sm">Resolve conflict</Button>
+              <Button size="sm">Resolve safely now</Button>
             </Link>
           ) : (
             <Link href="/dashboard">

@@ -70,6 +70,7 @@ var issueConflictsListCmd = &cobra.Command{
 		}
 		utils.PrintTable([]string{"CONFLICT_ID", "ISSUE_ID", "STATE", "FIELDS", "ACTOR", "CREATED"}, rows)
 		fmt.Printf("\nTotal conflicts: %d\n", len(conflicts))
+		fmt.Println("Zero data loss is active: scrumX stopped overwrite and kept both sides for review.")
 		if !includeAll {
 			fmt.Println("Hint: sx i cf show <conflict-id|issue-id>")
 			fmt.Println("      sx i cf resolve <...> --action keep-mine|keep-server|keep-both|later")
@@ -118,6 +119,7 @@ var issueConflictsShowCmd = &cobra.Command{
 		} else {
 			fmt.Println("Resolved: no")
 		}
+		fmt.Println("Trust: zero data loss preserved both local and server versions until you choose.")
 		fmt.Println("\nField differences:")
 		if len(item.Fields) == 0 {
 			fmt.Println("  (no field-level metadata available)")
@@ -189,6 +191,7 @@ var issueConflictsResolveCmd = &cobra.Command{
 			return err
 		}
 		fmt.Println(utils.SuccessText(fmt.Sprintf("Resolved conflict %s on issue %s with %s", item.ID, item.TargetID, item.Resolution)))
+		fmt.Println("Trust: zero data loss preserved the final safe state.")
 		return nil
 	},
 }
