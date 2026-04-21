@@ -230,9 +230,10 @@ export function CommandPalette() {
             <span>{action.label}</span>
           </button>
         ))}
-        <p className="px-3 py-2 text-xs text-muted-foreground">
-          ⌘/Ctrl+K open • G I/W/B/S navigate • C create • / focus filter • T open trust action • ↑/↓ then Enter to run
-        </p>
+        <div className="px-3 py-2 text-xs text-muted-foreground">
+          <div>⌘/Ctrl+K open | G I/W/B/S navigate | C create</div>
+          <div>/ focus filter | T open trust action | ↑/↓ then Enter to run</div>
+        </div>
       </div>
     </div>
   );

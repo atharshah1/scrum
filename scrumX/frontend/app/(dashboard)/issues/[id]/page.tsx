@@ -486,6 +486,7 @@ function suggestConflictResolution(preview: ConflictPreview, remoteIssue: Issue)
   };
 }
 
+// Keep this aligned with the Issue fields that can appear in conflict payloads.
 const issueFields: Array<keyof Issue> = ['id', 'title', 'description', 'status', 'priority', 'project_id', 'assignee_id', 'labels', 'sprint_id', 'updated_at'];
 
 function toIssueKeys(fields: string[]): Array<keyof Issue> {
