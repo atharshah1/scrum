@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -909,12 +908,11 @@ func smartPriority(value string) string {
 }
 
 func currentRepoLabel() string {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	output, err := cmd.Output()
+	output, err := gitOutput("rev-parse", "--show-toplevel")
 	if err != nil {
 		return ""
 	}
-	name := strings.ToLower(strings.TrimSpace(filepath.Base(strings.TrimSpace(string(output)))))
+	name := strings.ToLower(strings.TrimSpace(filepath.Base(strings.TrimSpace(output))))
 	name = sanitizeLocalLabel(name)
 	name = strings.Trim(name, "-.")
 	if name == "" {

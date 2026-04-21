@@ -29,7 +29,7 @@ type ConflictPreview = {
   kind: 'update' | 'transition';
   payload: Record<string, unknown>;
   local: Issue;
-  changedFields: string[];
+  changedFields: Array<keyof Issue>;
 };
 
 export default function IssueDetailPage() {
@@ -305,7 +305,7 @@ export default function IssueDetailPage() {
                   {conflictPreview.changedFields.map((field) => (
                     <div key={`local-${field}`} className="mb-2">
                       <div className="text-xs uppercase text-muted-foreground">{field}</div>
-                      <div>{formatConflictValue(conflictPreview.local[field as keyof Issue])}</div>
+                      <div>{formatConflictValue(conflictPreview.local[field])}</div>
                     </div>
                   ))}
                 </div>
@@ -314,7 +314,7 @@ export default function IssueDetailPage() {
                   {conflictPreview.changedFields.map((field) => (
                     <div key={`remote-${field}`} className="mb-2">
                       <div className="text-xs uppercase text-muted-foreground">{field}</div>
-                      <div>{formatConflictValue(issue[field as keyof Issue])}</div>
+                      <div>{formatConflictValue(issue[field])}</div>
                     </div>
                   ))}
                 </div>
@@ -367,15 +367,15 @@ function buildConflictPreview(previousIssue: Issue, payload: Record<string, unkn
     kind,
     payload,
     local: { ...previousIssue, ...payload },
-    changedFields: Object.keys(payload)
+    changedFields: toIssueKeys(Object.keys(payload))
   };
 }
 
 function mergeConflictPayload(preview: ConflictPreview, remoteIssue: Issue): Record<string, unknown> {
   const merged: Record<string, unknown> = {};
   for (const field of preview.changedFields) {
-    const localValue = preview.local[field as keyof Issue];
-    const remoteValue = remoteIssue[field as keyof Issue];
+    const localValue = preview.local[field];
+    const remoteValue = remoteIssue[field];
     switch (field) {
       case 'labels':
         merged[field] = Array.from(new Set([...(Array.isArray(remoteValue) ? remoteValue : []), ...(Array.isArray(localValue) ? localValue : [])]));
@@ -405,6 +405,12 @@ function formatConflictValue(value: unknown) {
   if (Array.isArray(value)) return value.join(', ') || '<empty>';
   if (value === null || value === undefined || value === '') return '<empty>';
   return String(value);
+}
+
+const issueFields: Array<keyof Issue> = ['id', 'title', 'description', 'status', 'priority', 'project_id', 'assignee_id', 'labels', 'sprint_id', 'updated_at'];
+
+function toIssueKeys(fields: string[]): Array<keyof Issue> {
+  return fields.filter((field): field is keyof Issue => issueFields.includes(field as keyof Issue));
 }
 
 function InlineTextarea({ value, onSave }: { value: string; onSave: (value: string) => void }) {

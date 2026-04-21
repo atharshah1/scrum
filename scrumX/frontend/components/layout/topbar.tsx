@@ -50,9 +50,8 @@ export function Topbar() {
 
   useEffect(() => {
     const updateOnline = () => setOnline(window.navigator.onLine);
-    const platform = (window.navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? window.navigator.userAgent;
     updateOnline();
-    setShortcutLabel(/mac|iphone|ipad|ipod/i.test(platform) ? '⌘K' : 'Ctrl+K');
+    setShortcutLabel(shortcutLabelForCurrentPlatform());
     window.addEventListener('online', updateOnline);
     window.addEventListener('offline', updateOnline);
     return () => {
@@ -225,4 +224,10 @@ export function Topbar() {
       </div>
     </header>
   );
+}
+
+function shortcutLabelForCurrentPlatform() {
+  const navigatorWithUAData = window.navigator as Navigator & { userAgentData?: { platform?: string } };
+  const platform = navigatorWithUAData.userAgentData?.platform ?? window.navigator.userAgent;
+  return /mac|iphone|ipad|ipod/i.test(platform) ? '⌘K' : 'Ctrl+K';
 }
