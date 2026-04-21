@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Search, Moon, ShieldCheck, Sun, Wifi, WifiOff } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
@@ -36,6 +37,7 @@ function scoreSuggestion(item: string, token: string): number | null {
 }
 
 export function Topbar() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const openPalette = useAppStore((s) => s.setCommandPaletteOpen);
@@ -43,21 +45,15 @@ export function Topbar() {
   const setJqlSearch = useAppStore((s) => s.setJqlSearch);
   const toggleTheme = useAppStore((s) => s.toggleTheme);
   const theme = useAppStore((s) => s.theme);
+  const online = useAppStore((s) => s.online);
+  const pendingActions = useAppStore((s) => s.pendingActions);
+  const conflictIssueIds = useAppStore((s) => s.conflictIssueIds);
   const [highlighted, setHighlighted] = useState(0);
   const [showMenu, setShowMenu] = useState(false);
-  const [online, setOnline] = useState(true);
   const [shortcutLabel, setShortcutLabel] = useState('⌘K');
 
   useEffect(() => {
-    const updateOnline = () => setOnline(window.navigator.onLine);
-    updateOnline();
     setShortcutLabel(shortcutLabelForCurrentPlatform());
-    window.addEventListener('online', updateOnline);
-    window.addEventListener('offline', updateOnline);
-    return () => {
-      window.removeEventListener('online', updateOnline);
-      window.removeEventListener('offline', updateOnline);
-    };
   }, []);
 
   const suggestionsQuery = useQuery({
@@ -208,12 +204,19 @@ export function Topbar() {
       <div className="flex items-center gap-2 text-sm">
         <Badge className={online ? 'border-emerald-200 text-emerald-700' : 'border-amber-200 text-amber-700'}>
           {online ? <Wifi className="mr-1 h-3.5 w-3.5" /> : <WifiOff className="mr-1 h-3.5 w-3.5" />}
-          {online ? 'Synced web workspace' : 'Offline-safe browser session'}
+          {online ? 'Web connection live' : 'Offline safe mode'}
         </Badge>
-        <Badge className="border-blue-200 text-blue-700">
+        <Badge className={pendingActions > 0 ? 'border-blue-200 text-blue-700' : 'border-slate-200 text-slate-700'}>
           <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-          Conflict-safe edits
+          {pendingActions > 0 ? `${pendingActions} pending web change${pendingActions === 1 ? '' : 's'}` : 'No pending web changes'}
         </Badge>
+        {conflictIssueIds.length > 0 ? (
+          <Button size="sm" onClick={() => router.push(`/issues/${conflictIssueIds[0]}`)}>
+            ⚠ {conflictIssueIds.length} conflict{conflictIssueIds.length === 1 ? '' : 's'}
+          </Button>
+        ) : (
+          <Badge className="border-blue-200 text-blue-700">Conflict-safe edits</Badge>
+        )}
         <Button variant="outline" size="sm" onClick={toggleTheme} aria-label="Toggle theme">
           {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>

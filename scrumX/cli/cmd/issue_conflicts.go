@@ -12,13 +12,15 @@ import (
 )
 
 var issueConflictsCmd = &cobra.Command{
-	Use:   "conflicts",
-	Short: "Resolve offline issue update conflicts",
+	Use:     "conflicts",
+	Aliases: []string{"conflict", "cf"},
+	Short:   "Resolve offline issue update conflicts",
 }
 
 var issueConflictsListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List issue conflicts",
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List issue conflicts",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
 		if err != nil {
@@ -69,17 +71,18 @@ var issueConflictsListCmd = &cobra.Command{
 		utils.PrintTable([]string{"CONFLICT_ID", "ISSUE_ID", "STATE", "FIELDS", "ACTOR", "CREATED"}, rows)
 		fmt.Printf("\nTotal conflicts: %d\n", len(conflicts))
 		if !includeAll {
-			fmt.Println("Hint: scrumx issue conflicts show <conflict-id|issue-id>")
-			fmt.Println("      scrumx issue conflicts resolve <...> --action keep-mine|keep-server|keep-both|later")
+			fmt.Println("Hint: sx i cf show <conflict-id|issue-id>")
+			fmt.Println("      sx i cf resolve <...> --action keep-mine|keep-server|keep-both|later")
 		}
 		return nil
 	},
 }
 
 var issueConflictsShowCmd = &cobra.Command{
-	Use:   "show <conflict-id|issue-id>",
-	Short: "Show conflict details",
-	Args:  cobra.ExactArgs(1),
+	Use:     "show <conflict-id|issue-id>",
+	Aliases: []string{"view", "v"},
+	Short:   "Show conflict details",
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
 		if err != nil {
@@ -144,9 +147,10 @@ var issueConflictsShowCmd = &cobra.Command{
 }
 
 var issueConflictsResolveCmd = &cobra.Command{
-	Use:   "resolve <conflict-id|issue-id>",
-	Short: "Resolve a conflict",
-	Args:  cobra.ExactArgs(1),
+	Use:     "resolve <conflict-id|issue-id>",
+	Aliases: []string{"r"},
+	Short:   "Resolve a conflict",
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
 		if err != nil {

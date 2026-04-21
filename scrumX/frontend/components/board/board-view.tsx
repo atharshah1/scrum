@@ -13,6 +13,7 @@ import { toast } from '@/components/ui/toast';
 import { apiRequest } from '@/lib/api';
 import { formatAssignee } from '@/lib/format';
 import { qk } from '@/lib/query-keys';
+import { useAppStore } from '@/store/useAppStore';
 import type { Board, Issue, WorkflowTransition } from '@/types';
 
 // Render in 80-item chunks based on manual board profiling to keep columns responsive
@@ -50,6 +51,10 @@ function moveIssueInBoard(board: Board, issueId: string, targetStatus: string): 
 
 export function BoardView({ boardId, board, transitions }: { boardId: string; board: Board; transitions: WorkflowTransition[] }) {
   const queryClient = useQueryClient();
+  const beginPendingAction = useAppStore((state) => state.beginPendingAction);
+  const finishPendingAction = useAppStore((state) => state.finishPendingAction);
+  const registerConflictIssue = useAppStore((state) => state.registerConflictIssue);
+  const clearConflictIssue = useAppStore((state) => state.clearConflictIssue);
   const sensors = useSensors(useSensor(PointerSensor));
   const issuesById = useMemo(
     () =>
@@ -66,6 +71,7 @@ export function BoardView({ boardId, board, transitions }: { boardId: string; bo
     mutationFn: async ({ issueId, status, updatedAt }: { issueId: string; status: string; updatedAt?: string }) =>
       apiRequest(`/issues/${issueId}`, { method: 'PATCH', body: JSON.stringify({ status, updated_at: updatedAt }) }),
     onMutate: async ({ issueId, status }) => {
+      beginPendingAction();
       await queryClient.cancelQueries({ queryKey: qk.board(boardId) });
       const previous = queryClient.getQueryData<Board>(qk.board(boardId));
       if (previous) {
@@ -73,22 +79,29 @@ export function BoardView({ boardId, board, transitions }: { boardId: string; bo
       }
       return { previous };
     },
-    onError: (error, _variables, context) => {
+    onError: (error, variables, context) => {
       if (context?.previous) {
         queryClient.setQueryData(qk.board(boardId), context.previous);
       }
+      const message = error instanceof Error ? error.message : 'Issue transition was rejected and has been reverted.';
+      const isConflict = /409|conflict|optimistic|updated_at/i.test(message);
+      if (isConflict) {
+        registerConflictIssue(variables.issueId);
+      }
       toast({
-        title: 'Move failed',
-        description: error instanceof Error ? error.message : 'Issue transition was rejected and has been reverted.',
+        title: isConflict ? 'Conflict detected' : 'Move failed',
+        description: isConflict ? 'Open the issue detail page to review local vs remote changes.' : message,
         variant: 'error'
       });
     },
     onSuccess: (_data, vars) => {
+      clearConflictIssue(vars.issueId);
       queryClient.setQueryData<Issue | undefined>(qk.issue(vars.issueId), (current) =>
         current ? { ...current, status: vars.status } : current
       );
     },
     onSettled: (_data, _error, vars) => {
+      finishPendingAction();
       queryClient.invalidateQueries({ queryKey: qk.board(boardId), exact: true });
       queryClient.invalidateQueries({ queryKey: qk.issue(vars.issueId), exact: true });
     }
@@ -163,8 +176,14 @@ function BoardColumnCard({ boardId, column, transitions }: { boardId: string; co
 function IssueCard({ boardId, issue, transitions }: { boardId: string; issue: Issue; transitions: WorkflowTransition[] }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: issue.id });
   const queryClient = useQueryClient();
+  const conflictIssueIds = useAppStore((state) => state.conflictIssueIds);
+  const beginPendingAction = useAppStore((state) => state.beginPendingAction);
+  const finishPendingAction = useAppStore((state) => state.finishPendingAction);
+  const registerConflictIssue = useAppStore((state) => state.registerConflictIssue);
+  const clearConflictIssue = useAppStore((state) => state.clearConflictIssue);
   const [assignee, setAssignee] = useState('');
   const [label, setLabel] = useState('');
+  const hasConflict = conflictIssueIds.includes(issue.id);
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -179,6 +198,7 @@ function IssueCard({ boardId, issue, transitions }: { boardId: string; issue: Is
     mutationFn: async (payload: Record<string, unknown>) =>
       apiRequest(`/issues/${issue.id}`, { method: 'PATCH', body: JSON.stringify({ ...payload, updated_at: issue.updated_at }) }),
     onMutate: async (payload) => {
+      beginPendingAction();
       await queryClient.cancelQueries({ queryKey: qk.board(boardId), exact: true });
       const previousBoard = queryClient.getQueryData<Board>(qk.board(boardId));
       if (previousBoard) {
@@ -192,17 +212,26 @@ function IssueCard({ boardId, issue, transitions }: { boardId: string; issue: Is
       }
       return { previousBoard };
     },
+    onSuccess: () => {
+      clearConflictIssue(issue.id);
+    },
     onError: (error, _variables, context) => {
       if (context?.previousBoard) {
         queryClient.setQueryData(qk.board(boardId), context.previousBoard);
       }
+      const message = error instanceof Error ? error.message : 'Reverted latest quick change.';
+      const isConflict = /409|conflict|optimistic|updated_at/i.test(message);
+      if (isConflict) {
+        registerConflictIssue(issue.id);
+      }
       toast({
-        title: 'Quick action failed',
-        description: error instanceof Error ? error.message : 'Reverted latest quick change.',
+        title: isConflict ? 'Conflict detected' : 'Quick action failed',
+        description: isConflict ? 'Open the issue detail page to review local vs remote changes.' : message,
         variant: 'error'
       });
     },
     onSettled: () => {
+      finishPendingAction();
       queryClient.invalidateQueries({ queryKey: qk.board(boardId), exact: true });
       queryClient.invalidateQueries({ queryKey: qk.issue(issue.id), exact: true });
       queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'issues' });
@@ -223,11 +252,14 @@ function IssueCard({ boardId, issue, transitions }: { boardId: string; issue: Is
     <div
       ref={setNodeRef}
       style={style}
-      className="group cursor-grab rounded-md border bg-background p-3 text-sm shadow-sm active:cursor-grabbing"
+      className={`group cursor-grab rounded-md border bg-background p-3 text-sm shadow-sm active:cursor-grabbing ${hasConflict ? 'border-amber-300 bg-amber-50/50' : ''}`}
       {...listeners}
       {...attributes}
     >
-      <div className="font-medium">{issue.title}</div>
+      <div className="flex items-center gap-2 font-medium">
+        <span>{issue.title}</span>
+        {hasConflict ? <Badge className="border-amber-200 bg-amber-100 text-amber-900">⚠ conflict</Badge> : null}
+      </div>
       <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
         <span>{formatAssignee(issue.assignee_id)}</span>
         <div className="flex gap-1">

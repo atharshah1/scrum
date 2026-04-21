@@ -15,7 +15,10 @@ export function CommandPalette() {
   const setOpen = useAppStore((s) => s.setCommandPaletteOpen);
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
   const setJqlSearch = useAppStore((s) => s.setJqlSearch);
+  const conflictIssueIds = useAppStore((s) => s.conflictIssueIds);
+  const pendingActions = useAppStore((s) => s.pendingActions);
   const [query, setQuery] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const savedQueries = useQuery({
     queryKey: qk.issueSavedQueries,
     queryFn: () => apiRequest<SavedIssueQuery[]>('/issues/queries/saved')
@@ -55,6 +58,13 @@ export function CommandPalette() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isOpen, router, setOpen]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      setQuery('');
+    }
+    setSelectedIndex(0);
+  }, [isOpen, query]);
+
   const actions = useMemo(
     () => {
       const staticActions = [
@@ -63,6 +73,20 @@ export function CommandPalette() {
         { id: 'open-board', label: 'Open board', action: () => router.push(selectedProjectId ? `/board/${selectedProjectId}` : '/board/default') },
         { id: 'open-workspace', label: 'Open workspace', action: () => router.push('/dashboard') },
         { id: 'open-migration', label: 'Open migration flow', action: () => router.push('/settings') }
+      ];
+      const trustActions = [
+        ...(pendingActions > 0
+          ? [{
+              id: 'trust-pending',
+              label: `Review ${pendingActions} pending web change${pendingActions === 1 ? '' : 's'}`,
+              action: () => router.push('/dashboard')
+            }]
+          : []),
+        ...conflictIssueIds.map((issueId) => ({
+          id: `conflict-${issueId}`,
+          label: `Resolve conflict on issue ${issueId}`,
+          action: () => router.push(`/issues/${issueId}`)
+        }))
       ];
       const dynamicSaved = (savedQueries.data ?? []).slice(0, 8).map((item) => ({
         id: `saved-${item.id}`,
@@ -90,9 +114,9 @@ export function CommandPalette() {
             }
           }]
         : [];
-      return [...searchAction, ...dynamicSaved, ...dynamicRecent, ...staticActions];
+      return [...trustActions, ...searchAction, ...dynamicSaved, ...dynamicRecent, ...staticActions];
     },
-    [query, recentQueries.data, router, savedQueries.data, selectedProjectId, setJqlSearch]
+    [conflictIssueIds, pendingActions, query, recentQueries.data, router, savedQueries.data, selectedProjectId, setJqlSearch]
   );
 
   const filteredActions = useMemo(() => {
@@ -109,23 +133,43 @@ export function CommandPalette() {
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (!filteredActions.length) return;
+            if (event.key === 'ArrowDown') {
+              event.preventDefault();
+              setSelectedIndex((index) => (index + 1) % filteredActions.length);
+            }
+            if (event.key === 'ArrowUp') {
+              event.preventDefault();
+              setSelectedIndex((index) => (index - 1 + filteredActions.length) % filteredActions.length);
+            }
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              filteredActions[selectedIndex]?.action();
+              setOpen(false);
+            }
+          }}
           className="mb-2"
           placeholder="Find commands, filters, and navigation..."
           autoFocus
         />
-        {filteredActions.map((action) => (
+        {filteredActions.map((action, index) => (
           <button
             key={action.id}
             type="button"
-            className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
+            className={`w-full rounded-md px-3 py-2 text-left text-sm hover:bg-accent ${index === selectedIndex ? 'bg-accent' : ''}`}
             onClick={() => {
               action.action();
               setOpen(false);
             }}
+            onMouseEnter={() => setSelectedIndex(index)}
           >
             <span>{action.label}</span>
           </button>
         ))}
+        <p className="px-3 py-2 text-xs text-muted-foreground">
+          ⌘/Ctrl+K to open • ↑/↓ then Enter to run • trust actions stay pinned to the top
+        </p>
       </div>
     </div>
   );

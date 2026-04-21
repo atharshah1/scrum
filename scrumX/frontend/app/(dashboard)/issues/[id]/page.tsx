@@ -15,6 +15,7 @@ import { toast } from '@/components/ui/toast';
 import { apiRequest } from '@/lib/api';
 import { comingSoonContent, features } from '@/lib/features';
 import { qk } from '@/lib/query-keys';
+import { useAppStore } from '@/store/useAppStore';
 import type { Board, CycleTimeInsight, Issue, IssueComment, WorkflowTransition } from '@/types';
 
 const defaultTransitions: WorkflowTransition[] = [
@@ -36,6 +37,11 @@ export default function IssueDetailPage() {
   const params = useParams<{ id: string }>();
   const issueId = params.id;
   const queryClient = useQueryClient();
+  const conflictIssueIds = useAppStore((state) => state.conflictIssueIds);
+  const beginPendingAction = useAppStore((state) => state.beginPendingAction);
+  const finishPendingAction = useAppStore((state) => state.finishPendingAction);
+  const registerConflictIssue = useAppStore((state) => state.registerConflictIssue);
+  const clearConflictIssue = useAppStore((state) => state.clearConflictIssue);
   const [nextStatus, setNextStatus] = useState('');
   const [conflictPreview, setConflictPreview] = useState<ConflictPreview | null>(null);
 
@@ -80,6 +86,7 @@ export default function IssueDetailPage() {
         body: JSON.stringify({ ...payload, updated_at: issue?.updated_at })
       }),
     onMutate: async (payload) => {
+      beginPendingAction();
       await queryClient.cancelQueries({ queryKey: qk.issue(issueId), exact: true });
       const previousIssue = queryClient.getQueryData<Issue>(qk.issue(issueId));
       if (previousIssue) {
@@ -89,6 +96,7 @@ export default function IssueDetailPage() {
     },
     onSuccess: () => {
       setConflictPreview(null);
+      clearConflictIssue(issueId);
     },
     onError: (error, payload, context) => {
       if (context?.previousIssue) {
@@ -97,6 +105,7 @@ export default function IssueDetailPage() {
       const message = error instanceof Error ? error.message : 'Changes were reverted.';
       const isConflict = /409|conflict|optimistic|updated_at/i.test(message);
       if (isConflict && context?.previousIssue) {
+        registerConflictIssue(issueId);
         setConflictPreview(buildConflictPreview(context.previousIssue, payload, 'update'));
       }
       toast({
@@ -109,6 +118,7 @@ export default function IssueDetailPage() {
       }
     },
     onSettled: () => {
+      finishPendingAction();
       queryClient.invalidateQueries({ queryKey: qk.issue(issueId), exact: true });
       queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'issues' });
       queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'board' });
@@ -122,6 +132,7 @@ export default function IssueDetailPage() {
         body: JSON.stringify({ status, updated_at: issue?.updated_at })
       }),
     onMutate: async (status) => {
+      beginPendingAction();
       await queryClient.cancelQueries({ queryKey: qk.issue(issueId), exact: true });
       const previousIssue = queryClient.getQueryData<Issue>(qk.issue(issueId));
       if (previousIssue) {
@@ -132,6 +143,7 @@ export default function IssueDetailPage() {
     onSuccess: (_updatedIssue, status) => {
       setConflictPreview(null);
       setNextStatus('');
+      clearConflictIssue(issueId);
       queryClient.setQueryData<Board | undefined>(qk.board(issue?.project_id ?? ''), (board) => {
         if (!board) return board;
         return {
@@ -150,6 +162,7 @@ export default function IssueDetailPage() {
       const message = error instanceof Error ? error.message : 'Issue transition was reverted.';
       const isConflict = /409|conflict|optimistic|updated_at/i.test(message);
       if (isConflict && context?.previousIssue) {
+        registerConflictIssue(issueId);
         setConflictPreview(buildConflictPreview(context.previousIssue, { status }, 'transition'));
       }
       toast({
@@ -162,6 +175,7 @@ export default function IssueDetailPage() {
       }
     },
     onSettled: () => {
+      finishPendingAction();
       queryClient.invalidateQueries({ queryKey: qk.issue(issueId), exact: true });
       queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'issues' });
       queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'board' });
@@ -186,6 +200,7 @@ export default function IssueDetailPage() {
     if (!conflictPreview || !issue) return;
     if (resolution === 'remote') {
       setConflictPreview(null);
+      clearConflictIssue(issueId);
       queryClient.invalidateQueries({ queryKey: qk.issue(issueId), exact: true });
       return;
     }
@@ -200,9 +215,20 @@ export default function IssueDetailPage() {
     updateIssue.mutate(mergeConflictPayload(conflictPreview, issue));
   };
 
+  const conflictSuggestion = conflictPreview && issue ? suggestConflictResolution(conflictPreview, issue) : null;
+  const hasWorkspaceConflict = conflictIssueIds.includes(issueId);
+
   return (
     <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
       <div className="space-y-4">
+        {hasWorkspaceConflict && !conflictPreview ? (
+          <Card className="border-amber-200 bg-amber-50/60">
+            <CardHeader><CardTitle>⚠ Conflict detected</CardTitle></CardHeader>
+            <CardContent className="text-sm text-amber-950/80">
+              A quick action from another surface hit an optimistic-lock conflict. Re-apply the intended change here to compare local and remote values safely.
+            </CardContent>
+          </Card>
+        ) : null}
         <Card>
           <CardHeader><CardTitle>Issue details</CardTitle></CardHeader>
           <CardContent className="space-y-4">
@@ -294,10 +320,30 @@ export default function IssueDetailPage() {
           </CardContent>
         </Card>
 
-        {conflictPreview && issue ? (
-          <Card>
-            <CardHeader><CardTitle>Conflict review</CardTitle></CardHeader>
+        {conflictPreview && issue && conflictSuggestion ? (
+          <Card className="border-amber-200 bg-amber-50/60">
+            <CardHeader className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="border-amber-200 bg-amber-100 text-amber-900">⚠ Conflict detected</Badge>
+                <Badge className="border-blue-200 bg-blue-100 text-blue-900">Suggested: {conflictSuggestion.label}</Badge>
+              </div>
+              <CardTitle>Conflict review</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-4 text-sm">
+              <p className="text-amber-950/80">{conflictSuggestion.reason}</p>
+              {conflictSuggestion.preview.length > 0 ? (
+                <div className="rounded-md border border-blue-200 bg-blue-50/80 p-3">
+                  <div className="mb-2 text-xs font-medium uppercase tracking-wide text-blue-900">Auto-merge preview</div>
+                  <div className="space-y-2">
+                    {conflictSuggestion.preview.map(({ field, value }) => (
+                      <div key={`preview-${field}`}>
+                        <div className="text-xs uppercase text-blue-800/70">{field}</div>
+                        <div className="text-blue-950">{formatConflictValue(value)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <p className="text-muted-foreground">Compare your local change with the latest remote value, then keep local, keep remote, or merge.</p>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-md border p-3">
@@ -320,9 +366,10 @@ export default function IssueDetailPage() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button onClick={() => resolveConflict(conflictSuggestion.action)}>{conflictSuggestion.cta}</Button>
                 <Button variant="outline" onClick={() => resolveConflict('local')}>Keep local</Button>
                 <Button variant="outline" onClick={() => resolveConflict('remote')}>Keep remote</Button>
-                <Button onClick={() => resolveConflict('merge')}>Merge</Button>
+                <Button variant="outline" onClick={() => resolveConflict('merge')}>Merge manually</Button>
               </div>
             </CardContent>
           </Card>
@@ -405,6 +452,36 @@ function formatConflictValue(value: unknown) {
   if (Array.isArray(value)) return value.join(', ') || '<empty>';
   if (value === null || value === undefined || value === '') return '<empty>';
   return String(value);
+}
+
+function suggestConflictResolution(preview: ConflictPreview, remoteIssue: Issue) {
+  const mergePreview = mergeConflictPayload(preview, remoteIssue);
+  const mergeFields = preview.changedFields.filter((field) => ['labels', 'description', 'title'].includes(field));
+  if (preview.kind === 'transition') {
+    return {
+      action: 'local' as const,
+      label: 'Keep local transition',
+      cta: 'Apply suggested local transition',
+      reason: 'Workflow moves are usually intentional. Retry your transition against the latest remote version first.',
+      preview: [] as Array<{ field: keyof Issue; value: unknown }>
+    };
+  }
+  if (mergeFields.length > 0) {
+    return {
+      action: 'merge' as const,
+      label: 'Merge both sides',
+      cta: 'Apply suggested merge',
+      reason: 'This keeps your local intent visible while preserving the latest remote values instead of forcing a winner.',
+      preview: mergeFields.map((field) => ({ field, value: mergePreview[field] }))
+    };
+  }
+  return {
+    action: 'local' as const,
+    label: 'Keep local update',
+    cta: 'Apply suggested local update',
+    reason: 'Retry the local field update against the latest remote record to preserve the most recent intent.',
+    preview: [] as Array<{ field: keyof Issue; value: unknown }>
+  };
 }
 
 const issueFields: Array<keyof Issue> = ['id', 'title', 'description', 'status', 'priority', 'project_id', 'assignee_id', 'labels', 'sprint_id', 'updated_at'];

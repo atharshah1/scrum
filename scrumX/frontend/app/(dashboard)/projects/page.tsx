@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -26,6 +27,11 @@ export default function ProjectsPage() {
   const filters = useAppStore((s) => s.issueFilters);
   const setIssueFilter = useAppStore((s) => s.setIssueFilter);
   const jqlSearch = useAppStore((s) => s.jqlSearch);
+  const conflictIssueIds = useAppStore((s) => s.conflictIssueIds);
+  const beginPendingAction = useAppStore((s) => s.beginPendingAction);
+  const finishPendingAction = useAppStore((s) => s.finishPendingAction);
+  const registerConflictIssue = useAppStore((s) => s.registerConflictIssue);
+  const clearConflictIssue = useAppStore((s) => s.clearConflictIssue);
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const isAdmin = isAdminRole(user?.role);
@@ -67,11 +73,25 @@ export default function ProjectsPage() {
       }),
     onSuccess: (createdIssue) => {
       createIssueForm.reset();
+      clearConflictIssue(createdIssue.id);
       queryClient.setQueryData<Issue[]>(qk.issues(filterKey), (prev) => [createdIssue, ...(prev ?? [])]);
       queryClient.invalidateQueries({ queryKey: qk.issues(filterKey), exact: true });
       if (createdIssue.id) {
         queryClient.setQueryData(qk.issue(createdIssue.id), createdIssue);
       }
+    },
+    onMutate: async () => {
+      beginPendingAction();
+    },
+    onError: (error) => {
+      toast({
+        title: 'Create issue failed',
+        description: error instanceof Error ? error.message : 'Unable to create issue.',
+        variant: 'error'
+      });
+    },
+    onSettled: () => {
+      finishPendingAction();
     }
   });
 
@@ -105,6 +125,19 @@ export default function ProjectsPage() {
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Issue workspace</h1>
       <p className="text-xs text-muted-foreground">Keyboard: J/K to move, Enter to open the selected issue.</p>
+      {conflictIssueIds.length > 0 ? (
+        <Card className="border-amber-200 bg-amber-50/60">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-amber-950">
+            <div>
+              <div className="font-medium">⚠ Conflict detected in the main issue workspace</div>
+              <p className="text-amber-900/80">Open the issue detail page for guided local vs remote resolution.</p>
+            </div>
+            <Link href={`/issues/${conflictIssueIds[0]}`}>
+              <Button size="sm">Resolve first conflict</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      ) : null}
       <Card>
         <CardHeader><CardTitle>Filters</CardTitle></CardHeader>
         <CardContent className="grid gap-2 md:grid-cols-4">
@@ -180,33 +213,51 @@ export default function ProjectsPage() {
 
 function IssueRow({ issue, active, filterKey }: { issue: Issue; active: boolean; filterKey: string }) {
   const queryClient = useQueryClient();
+  const conflictIssueIds = useAppStore((s) => s.conflictIssueIds);
+  const beginPendingAction = useAppStore((s) => s.beginPendingAction);
+  const finishPendingAction = useAppStore((s) => s.finishPendingAction);
+  const registerConflictIssue = useAppStore((s) => s.registerConflictIssue);
+  const clearConflictIssue = useAppStore((s) => s.clearConflictIssue);
   const [assignee, setAssignee] = useState('');
   const [label, setLabel] = useState('');
   const [status, setStatus] = useState(issue.status);
+  const hasConflict = conflictIssueIds.includes(issue.id);
 
   const quickUpdate = useMutation({
     mutationFn: async (payload: Record<string, unknown>) =>
       apiRequest(`/issues/${issue.id}`, { method: 'PATCH', body: JSON.stringify({ ...payload, updated_at: issue.updated_at }) }),
     onMutate: async (payload) => {
+      beginPendingAction();
       await queryClient.cancelQueries({ queryKey: qk.issues(filterKey), exact: true });
       const previous = queryClient.getQueryData<Issue[]>(qk.issues(filterKey));
+      const previousIssue = previous?.find((item) => item.id === issue.id);
       if (previous) {
         queryClient.setQueryData<Issue[]>(
           qk.issues(filterKey),
           previous.map((item) => (item.id === issue.id ? { ...item, ...payload } : item))
         );
       }
-      return { previous };
+      return { previous, previousIssue };
+    },
+    onSuccess: () => {
+      clearConflictIssue(issue.id);
     },
     onError: (error, _vars, context) => {
       if (context?.previous) queryClient.setQueryData(qk.issues(filterKey), context.previous);
+      if (context?.previousIssue?.status) setStatus(context.previousIssue.status);
+      const message = error instanceof Error ? error.message : 'Unable to apply quick issue update.';
+      const isConflict = /409|conflict|optimistic|updated_at/i.test(message);
+      if (isConflict) {
+        registerConflictIssue(issue.id);
+      }
       toast({
-        title: 'Quick action failed',
-        description: error instanceof Error ? error.message : 'Unable to apply quick issue update.',
+        title: isConflict ? 'Conflict detected' : 'Quick action failed',
+        description: isConflict ? 'Open the issue detail page for guided conflict resolution.' : message,
         variant: 'error'
       });
     },
     onSettled: () => {
+      finishPendingAction();
       queryClient.invalidateQueries({ queryKey: qk.issues(filterKey), exact: true });
       queryClient.invalidateQueries({ queryKey: qk.issue(issue.id), exact: true });
       queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'board' });
@@ -224,9 +275,12 @@ function IssueRow({ issue, active, filterKey }: { issue: Issue; active: boolean;
   });
 
   return (
-    <div className={`group rounded-md border p-3 ${active ? 'ring-2 ring-blue-200' : ''}`}>
+    <div className={`group rounded-md border p-3 ${active ? 'ring-2 ring-blue-200' : ''} ${hasConflict ? 'border-amber-300 bg-amber-50/50' : ''}`}>
       <Link href={`/issues/${issue.id}`} className="block hover:underline">
-        <div className="font-medium">{issue.title}</div>
+        <div className="flex items-center gap-2 font-medium">
+          <span>{issue.title}</span>
+          {hasConflict ? <Badge className="border-amber-200 bg-amber-100 text-amber-900">⚠ conflict detected</Badge> : null}
+        </div>
       </Link>
       <div className="text-xs text-muted-foreground">{issue.status}</div>
       <div className="mt-2 hidden grid-cols-1 gap-2 group-hover:grid md:grid-cols-3">

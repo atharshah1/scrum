@@ -21,13 +21,13 @@ var rootCmd = &cobra.Command{
 	Long: `scrumX is built for fast task work with offline safety, sync visibility,
 and Git-like conflict protection.
 
-Fast paths:
+Core daily flow:
   sx i c "fix login bug p1 assign me #auth"
   sx i l --status in_progress
-  sx status
-  sx sync
-  sx pr create-issue`,
-	Example: "  sx i c \"fix login bug p1 assign me #auth\"\n  sx i l --status open\n  sx status\n  sx pr create-issue",
+  sx sync st
+  sx i cf l
+  sx i cf r <issue-id>`,
+	Example: "  sx i c \"fix login bug p1 assign me #auth\"\n  sx i l --status open\n  sx sync st\n  sx i cf l\n  sx i cf r <issue-id>",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		cfgStore = config.NewStore("")
 		cfg, err := cfgStore.Load()

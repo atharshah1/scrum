@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -93,6 +94,79 @@ func TestSyncStatusCountsOnlyUnresolvedConflicts(t *testing.T) {
 	}
 	if status.LastSyncedAt.IsZero() {
 		t.Fatalf("expected last sync timestamp to be preserved")
+	}
+}
+
+func TestTrustPathStatusReflectsConflictResolution(t *testing.T) {
+	client, cfg, store := newTestClient(t)
+	cfg.APIURL = "http://127.0.0.1:1/api/v1"
+	cfg.CurrentProjectID = "project-1"
+	cfg.AccessToken = "test-token"
+	if err := client.cfgStore.Save(cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	created, err := client.CreateIssueSmart(CreateIssueInput{
+		Title:     "Trust-path issue",
+		ProjectID: cfg.CurrentProjectID,
+	})
+	if err != nil {
+		t.Fatalf("create issue smart: %v", err)
+	}
+
+	localRaw, _ := json.Marshal(created)
+	serverIssue := created
+	serverIssue.ID = "server-1"
+	serverIssue.Title = "Remote title"
+	serverIssue.UpdatedAt = time.Now().UTC()
+	serverRaw, _ := json.Marshal(serverIssue)
+
+	if err := store.Save(offline.State{
+		Mode: offline.ModeOffline,
+		Issues: map[string]offline.Issue{
+			created.ID: fromIssue(created),
+		},
+		PendingOperations: []offline.Operation{
+			{ID: "op-1", Entity: "issue", Action: "create", TargetID: created.ID, CreatedAt: time.Now().UTC()},
+		},
+		Conflicts: []offline.ConflictRecord{
+			{
+				ID:             "c-1",
+				Entity:         "issue",
+				TargetID:       created.ID,
+				LocalSnapshot:  localRaw,
+				ServerSnapshot: serverRaw,
+				Fields: []offline.ConflictField{
+					{Field: "title", LocalValue: created.Title, ServerValue: serverIssue.Title},
+				},
+				CreatedAt: time.Now().UTC(),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save state with conflict: %v", err)
+	}
+
+	status, err := client.SyncStatus()
+	if err != nil {
+		t.Fatalf("sync status before resolve: %v", err)
+	}
+	if status.PendingOps != 1 || status.PendingConflicts != 1 {
+		t.Fatalf("unexpected trust status before resolve: %+v", status)
+	}
+
+	if _, err := client.ResolveIssueConflict("c-1", ConflictResolutionKeepServer); err != nil {
+		t.Fatalf("resolve conflict: %v", err)
+	}
+
+	status, err = client.SyncStatus()
+	if err != nil {
+		t.Fatalf("sync status after resolve: %v", err)
+	}
+	if status.PendingOps != 1 {
+		t.Fatalf("expected queued create op to remain, got %+v", status)
+	}
+	if status.PendingConflicts != 0 {
+		t.Fatalf("expected resolved conflicts to disappear from trust status, got %+v", status)
 	}
 }
 
