@@ -10,11 +10,16 @@ import (
 )
 
 func TestCreateIssueSmartQueuesOfflineAndUpdatesSyncStatus(t *testing.T) {
-	client, cfg, store := newTestClient(t)
+	client, cfg, _ := newTestClient(t)
 	cfg.APIURL = "http://127.0.0.1:1/api/v1"
 	cfg.CurrentProjectID = "project-1"
+	cfg.AccessToken = "test-token"
 	if err := client.cfgStore.Save(cfg); err != nil {
 		t.Fatalf("save config: %v", err)
+	}
+	store, err := client.offlineStore(cfg)
+	if err != nil {
+		t.Fatalf("offline store: %v", err)
 	}
 
 	issue, err := client.CreateIssueSmart(CreateIssueInput{
