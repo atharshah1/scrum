@@ -186,7 +186,7 @@ function IssueRow({ issue, active, filterKey }: { issue: Issue; active: boolean;
 
   const quickUpdate = useMutation({
     mutationFn: async (payload: Record<string, unknown>) =>
-      apiRequest(`/issues/${issue.id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+      apiRequest(`/issues/${issue.id}`, { method: 'PATCH', body: JSON.stringify({ ...payload, updated_at: issue.updated_at }) }),
     onMutate: async (payload) => {
       await queryClient.cancelQueries({ queryKey: qk.issues(filterKey), exact: true });
       const previous = queryClient.getQueryData<Issue[]>(qk.issues(filterKey));

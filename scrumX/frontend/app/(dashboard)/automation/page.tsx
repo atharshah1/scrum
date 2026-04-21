@@ -6,6 +6,7 @@ import { AutomationBuilder } from '@/components/automation/automation-builder';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
+import { ProductStatusNotice } from '@/components/ui/product-status-notice';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiRequest } from '@/lib/api';
 import { canManageAutomation } from '@/lib/permissions';
@@ -28,6 +29,11 @@ export default function AutomationPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Automation</h1>
+      <ProductStatusNotice
+        title="Automation is not part of the proven issue/sync/conflict slice yet."
+        description="Use it as an early workflow shell for exploration, but rely on issue create, sync status, and conflict review for the validated daily path."
+        action={<Link className="text-sm font-medium underline" href="/projects">Go back to the issue workspace</Link>}
+      />
       {!canEdit ? (
         <EmptyState
           title="Read-only automation"

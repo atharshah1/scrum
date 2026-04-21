@@ -63,8 +63,8 @@ export function BoardView({ boardId, board, transitions }: { boardId: string; bo
   );
 
   const moveIssue = useMutation({
-    mutationFn: async ({ issueId, status }: { issueId: string; status: string }) =>
-      apiRequest(`/issues/${issueId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    mutationFn: async ({ issueId, status, updatedAt }: { issueId: string; status: string; updatedAt?: string }) =>
+      apiRequest(`/issues/${issueId}`, { method: 'PATCH', body: JSON.stringify({ status, updated_at: updatedAt }) }),
     onMutate: async ({ issueId, status }) => {
       await queryClient.cancelQueries({ queryKey: qk.board(boardId) });
       const previous = queryClient.getQueryData<Board>(qk.board(boardId));
@@ -111,7 +111,7 @@ export function BoardView({ boardId, board, transitions }: { boardId: string; bo
       return;
     }
 
-    moveIssue.mutate({ issueId, status: targetStatus });
+      moveIssue.mutate({ issueId, status: targetStatus, updatedAt: activeIssue.updated_at });
   };
 
   return (
@@ -177,7 +177,7 @@ function IssueCard({ boardId, issue, transitions }: { boardId: string; issue: Is
 
   const quickUpdate = useMutation({
     mutationFn: async (payload: Record<string, unknown>) =>
-      apiRequest(`/issues/${issue.id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+      apiRequest(`/issues/${issue.id}`, { method: 'PATCH', body: JSON.stringify({ ...payload, updated_at: issue.updated_at }) }),
     onMutate: async (payload) => {
       await queryClient.cancelQueries({ queryKey: qk.board(boardId), exact: true });
       const previousBoard = queryClient.getQueryData<Board>(qk.board(boardId));

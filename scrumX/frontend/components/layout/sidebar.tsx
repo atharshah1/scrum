@@ -9,9 +9,9 @@ const items = [
   { href: '/dashboard', label: 'Workspace' },
   { href: '/board/default', label: 'Board' },
   { href: '/settings', label: 'Migration & Settings' },
-  { href: '/automation', label: 'Automation' },
-  { href: '/releases', label: 'Releases' },
-  { href: '/incidents', label: 'Incidents' }
+  { href: '/automation', label: 'Automation (preview)' },
+  { href: '/releases', label: 'Releases (preview)' },
+  { href: '/incidents', label: 'Incidents (preview)' }
 ];
 
 export function Sidebar() {
