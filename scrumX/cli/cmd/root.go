@@ -21,16 +21,23 @@ var rootCmd = &cobra.Command{
 	Long: `scrumX is built for fast task work with zero data loss, safe offline capture,
 visible sync trust, and safe conflict resolution.
 
+Binary and alias:
+  scrumx
+  alias sx=scrumx
+
 Fastest onboarding flow:
   sx demo
 
 Core daily flow:
+  scrumx issues create "fix login bug p1 assign me #auth"
   sx i c "fix login bug p1 assign me #auth"
+  scrumx i -c "fix login bug p1 assign me #auth"
+  scrumx issues list --status in_progress
   sx i l --status in_progress
   sx sync st
   sx i cf l
   sx i cf r <issue-id>`,
-	Example: "  sx demo\n  sx i c \"fix login bug p1 assign me #auth\"\n  sx i l --status open\n  sx sync st\n  sx i cf l\n  sx i cf r <issue-id>",
+	Example: "  sx demo\n  scrumx issues create \"fix login bug p1 assign me #auth\"\n  sx i c \"fix login bug p1 assign me #auth\"\n  scrumx i -c \"fix login bug p1 assign me #auth\"\n  scrumx issues list --status open\n  sx i l --status open\n  scrumx i -l --status open\n  sx sync st\n  sx i cf l\n  sx i cf r <issue-id>",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		cfgStore = config.NewStore("")
 		cfg, err := cfgStore.Load()
@@ -52,7 +59,7 @@ var completionCmd = &cobra.Command{
 	Short:     "Generate shell completion script",
 	Args:      cobra.ExactArgs(1),
 	ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
-	Example:   "  scrumx completion bash > /etc/bash_completion.d/scrumx\n  scrumx completion zsh > ~/.zsh/completions/_scrumx",
+	Example:   "  scrumx completion bash > /etc/bash_completion.d/scrumx\n  scrumx completion zsh > ~/.zsh/completions/_scrumx\n  alias sx=scrumx",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		switch args[0] {
 		case "bash":

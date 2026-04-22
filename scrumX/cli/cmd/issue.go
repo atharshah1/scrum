@@ -12,9 +12,19 @@ import (
 )
 
 var issueCmd = &cobra.Command{
-	Use:     "issue",
-	Aliases: []string{"issues", "is", "i"},
+	Use:     "issues",
+	Aliases: []string{"issue", "is", "i"},
 	Short:   "Issue management commands",
+	Example: strings.TrimSpace(`
+  scrumx issues create "fix login bug p1 assign me #auth"
+  sx i c "fix login bug p1 assign me #auth"
+  scrumx i -c "fix login bug p1 assign me #auth"
+
+  scrumx issues list --status open
+  sx i l --status open
+  scrumx i -l --status open
+`),
+	RunE: runIssueRoot,
 }
 
 var issueCreateCmd = &cobra.Command{
@@ -26,112 +36,7 @@ var issueCreateCmd = &cobra.Command{
   sx i c "fix login bug p1 assign me #auth"
   sx i c "Backend cleanup" --interactive
 `),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client, err := newClient()
-		if err != nil {
-			return err
-		}
-		cfg, err := cfgStore.Load()
-		if err != nil {
-			return err
-		}
-		interactive, _ := cmd.Flags().GetBool("interactive")
-		projectID, _ := cmd.Flags().GetString("project-id")
-		if strings.TrimSpace(projectID) == "" {
-			projectID = cfg.CurrentProjectID
-		}
-		description, _ := cmd.Flags().GetString("description")
-		issueType, _ := cmd.Flags().GetString("type")
-		priority, _ := cmd.Flags().GetString("priority")
-		parentID, _ := cmd.Flags().GetString("parent-id")
-		sprintID, _ := cmd.Flags().GetString("sprint-id")
-		assigneeID, _ := cmd.Flags().GetString("assignee-id")
-		labelsFlag, _ := cmd.Flags().GetString("labels")
-		smart := parseSmartIssueInput(args[0], cfg.UserID)
-		title := smart.Title
-		if title == "" {
-			title = strings.TrimSpace(args[0])
-		}
-		if !cmd.Flags().Changed("priority") && smart.Priority != "" {
-			priority = smart.Priority
-		}
-		if !cmd.Flags().Changed("assignee-id") && smart.AssigneeID != "" {
-			assigneeID = smart.AssigneeID
-		}
-		if strings.TrimSpace(assigneeID) == "" {
-			assigneeID = strings.TrimSpace(cfg.UserID)
-		}
-		if strings.TrimSpace(description) == "" && strings.TrimSpace(smart.Description) != "" {
-			description = smart.Description
-		}
-		labels := parseCSV(labelsFlag)
-		if !cmd.Flags().Changed("labels") {
-			labels = append(labels, smart.Labels...)
-		}
-		labels = parseCSV(strings.Join(labels, ","))
-		if len(labels) == 0 {
-			if repoLabel := currentRepoLabel(); repoLabel != "" {
-				labels = []string{repoLabel}
-			}
-		}
-
-		if interactive {
-			if strings.TrimSpace(projectID) == "" {
-				projectID, err = utils.Prompt("Project ID")
-				if err != nil {
-					return err
-				}
-			}
-			description, err = utils.PromptOptional("Description", description)
-			if err != nil {
-				return err
-			}
-			issueType, err = utils.PromptOptional("Type (epic|story|task|bug)", issueType)
-			if err != nil {
-				return err
-			}
-			priority, err = utils.PromptOptional("Priority", priority)
-			if err != nil {
-				return err
-			}
-			parentID, err = utils.PromptOptional("Parent ID", parentID)
-			if err != nil {
-				return err
-			}
-			sprintID, err = utils.PromptOptional("Sprint ID", sprintID)
-			if err != nil {
-				return err
-			}
-			assigneeID, err = utils.PromptOptional("Assignee ID", assigneeID)
-			if err != nil {
-				return err
-			}
-			labelsFlag, err = utils.PromptOptional("Labels (comma-separated)", labelsFlag)
-			if err != nil {
-				return err
-			}
-		}
-
-		if strings.TrimSpace(projectID) == "" {
-			return fmt.Errorf("--project-id is required (or set context current_project_id)")
-		}
-		issue, err := client.CreateIssueSmart(api.CreateIssueInput{
-			Title:       title,
-			ProjectID:   projectID,
-			Description: description,
-			IssueType:   issueType,
-			Priority:    priority,
-			ParentID:    parentID,
-			SprintID:    sprintID,
-			AssigneeID:  assigneeID,
-			Labels:      labels,
-		})
-		if err != nil {
-			return err
-		}
-		fmt.Println(utils.SuccessText(fmt.Sprintf("Created issue %s: %s", issue.ID, issue.Title)))
-		return nil
-	},
+	RunE: runIssueCreate,
 }
 
 var issueListCmd = &cobra.Command{
@@ -143,41 +48,7 @@ var issueListCmd = &cobra.Command{
   sx i l --status in_progress --assignee-id <user-id>
   sx i l --sprint-id <sprint-id> --label backend --project-id <project-id>
 `),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client, err := newClient()
-		if err != nil {
-			return err
-		}
-		filter := api.IssueListFilter{
-			ProjectID:  mustString(cmd, "project-id"),
-			Status:     mustString(cmd, "status"),
-			AssigneeID: mustString(cmd, "assignee-id"),
-			SprintID:   mustString(cmd, "sprint-id"),
-			Label:      mustString(cmd, "label"),
-			IssueType:  mustString(cmd, "type"),
-			Query:      mustString(cmd, "query"),
-			SortBy:     mustString(cmd, "sort-by"),
-			Order:      mustString(cmd, "order"),
-		}
-		page, _ := cmd.Flags().GetInt("page")
-		limit, _ := cmd.Flags().GetInt("limit")
-		filter.Page = page
-		filter.Limit = limit
-		issues, err := client.ListIssuesSmart(filter)
-		if err != nil {
-			return err
-		}
-		if len(issues) == 0 {
-			fmt.Println("No issues found")
-			return nil
-		}
-		rows := make([][]string, 0, len(issues))
-		for _, it := range issues {
-			rows = append(rows, []string{it.ID, utils.StatusColor(it.Status), it.Priority, it.IssueType, it.Title})
-		}
-		utils.PrintTable([]string{"ID", "STATUS", "PRIORITY", "TYPE", "TITLE"}, rows)
-		return nil
-	},
+	RunE: runIssueList,
 }
 
 var issueSearchCmd = &cobra.Command{
@@ -254,77 +125,14 @@ var issueUpdateCmd = &cobra.Command{
   sx i u <issue-id> --priority high --labels bug,customer
   sx i u <issue-id> --title "New title" --description "Updated details"
 `),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client, err := newClient()
-		if err != nil {
-			return err
-		}
-		id := args[0]
-		input := api.UpdateIssueInput{}
-		setCount := 0
-
-		if cmd.Flags().Changed("title") {
-			v, _ := cmd.Flags().GetString("title")
-			input.Title = &v
-			setCount++
-		}
-		if cmd.Flags().Changed("description") {
-			v, _ := cmd.Flags().GetString("description")
-			input.Description = &v
-			setCount++
-		}
-		if cmd.Flags().Changed("priority") {
-			v, _ := cmd.Flags().GetString("priority")
-			input.Priority = &v
-			setCount++
-		}
-		if cmd.Flags().Changed("type") {
-			v, _ := cmd.Flags().GetString("type")
-			input.IssueType = &v
-			setCount++
-		}
-		if cmd.Flags().Changed("status") {
-			v, _ := cmd.Flags().GetString("status")
-			input.Status = &v
-			setCount++
-		}
-		if cmd.Flags().Changed("parent-id") {
-			v, _ := cmd.Flags().GetString("parent-id")
-			input.ParentID = &v
-			setCount++
-		}
-		if cmd.Flags().Changed("sprint-id") {
-			v, _ := cmd.Flags().GetString("sprint-id")
-			input.SprintID = &v
-			setCount++
-		}
-		if cmd.Flags().Changed("assignee-id") {
-			v, _ := cmd.Flags().GetString("assignee-id")
-			input.AssigneeID = &v
-			setCount++
-		}
-		if cmd.Flags().Changed("labels") {
-			labels := parseCSV(mustString(cmd, "labels"))
-			input.Labels = &labels
-			setCount++
-		}
-		if setCount == 0 {
-			return fmt.Errorf("no changes provided")
-		}
-		issue, err := client.UpdateIssueSmart(id, input)
-		if err != nil {
-			return err
-		}
-		fmt.Println(utils.SuccessText(fmt.Sprintf("Updated issue %s (%s)", issue.ID, issue.Status)))
-		return nil
-	},
+	RunE: runIssueUpdate,
 }
 
 var issueAssignCmd = &cobra.Command{
 	Use:     "assign <issue-id> <user-id>",
 	Short:   "Assign an issue",
 	Args:    cobra.ExactArgs(2),
-	Example: "  scrumx issue assign <issue-id> <user-id>",
+	Example: "  scrumx issues assign <issue-id> <user-id>",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
 		if err != nil {
@@ -344,8 +152,8 @@ var issueMoveCmd = &cobra.Command{
 	Short: "Move issue through workflow transitions",
 	Args:  cobra.RangeArgs(1, 2),
 	Example: strings.TrimSpace(`
-  scrumx issue move <issue-id> done
-  scrumx issue move <issue-id>
+  scrumx issues move <issue-id> done
+  scrumx issues move <issue-id>
 `),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
@@ -576,7 +384,7 @@ var issueBulkAssignCmd = &cobra.Command{
 	Short: "Bulk assign issues",
 	Args:  cobra.ExactArgs(1),
 	Example: `
-  scrumx issue bulk assign <user-id> --issues <id1,id2,id3>
+  scrumx issues bulk assign <user-id> --issues <id1,id2,id3>
 `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
@@ -609,7 +417,7 @@ var issueBulkMoveCmd = &cobra.Command{
 	Short: "Bulk move issues to a status",
 	Args:  cobra.ExactArgs(1),
 	Example: `
-  scrumx issue bulk move done --issues <id1,id2,id3>
+  scrumx issues bulk move done --issues <id1,id2,id3>
 `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
@@ -707,7 +515,7 @@ var issueCommentAddCmd = &cobra.Command{
 	Short: "Add a comment to an issue",
 	Args:  cobra.ExactArgs(1),
 	Example: `
-  scrumx issue comment add <issue-id> --body "Looking into this now."
+  scrumx issues comment add <issue-id> --body "Looking into this now."
 `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newClient()
@@ -766,37 +574,11 @@ func init() {
 	issueCommentCmd.AddCommand(issueCommentAddCmd, issueCommentListCmd)
 	issueFilterCmd.AddCommand(issueFilterSaveCmd, issueFilterListCmd, issueFilterRunCmd, issueFilterDeleteCmd, issueFilterRecentCmd)
 
-	issueCreateCmd.Flags().String("project-id", "", "Project UUID (defaults to active context)")
-	issueCreateCmd.Flags().String("description", "", "Issue description")
-	issueCreateCmd.Flags().String("type", "task", "Issue type")
-	issueCreateCmd.Flags().String("priority", "medium", "Issue priority")
-	issueCreateCmd.Flags().String("parent-id", "", "Parent issue UUID")
-	issueCreateCmd.Flags().String("sprint-id", "", "Sprint UUID")
-	issueCreateCmd.Flags().String("assignee-id", "", "Assignee user UUID")
-	issueCreateCmd.Flags().String("labels", "", "Comma-separated labels")
-	issueCreateCmd.Flags().Bool("interactive", false, "Launch interactive creation wizard")
-
-	issueUpdateCmd.Flags().String("title", "", "Issue title")
-	issueUpdateCmd.Flags().String("description", "", "Issue description")
-	issueUpdateCmd.Flags().String("priority", "", "Issue priority")
-	issueUpdateCmd.Flags().String("type", "", "Issue type")
-	issueUpdateCmd.Flags().String("status", "", "Issue status")
-	issueUpdateCmd.Flags().String("parent-id", "", "Parent issue UUID")
-	issueUpdateCmd.Flags().String("sprint-id", "", "Sprint UUID")
-	issueUpdateCmd.Flags().String("assignee-id", "", "Assignee user UUID")
-	issueUpdateCmd.Flags().String("labels", "", "Replace labels with comma-separated values")
-
-	issueListCmd.Flags().String("project-id", "", "Filter by project UUID")
-	issueListCmd.Flags().String("status", "", "Filter by status")
-	issueListCmd.Flags().String("assignee-id", "", "Filter by assignee UUID")
-	issueListCmd.Flags().String("sprint-id", "", "Filter by sprint UUID")
-	issueListCmd.Flags().String("label", "", "Filter by label")
-	issueListCmd.Flags().String("type", "", "Filter by issue type")
-	issueListCmd.Flags().String("query", "", "Filter text in issue titles/descriptions")
-	issueListCmd.Flags().String("sort-by", "", "Sort by field (created_at|updated_at|priority|status)")
-	issueListCmd.Flags().String("order", "", "Sort order (asc|desc)")
-	issueListCmd.Flags().Int("page", 1, "Page number")
-	issueListCmd.Flags().Int("limit", 50, "Page size")
+	registerIssueRootShortcutFlags(issueCmd)
+	registerIssueRootOptionFlags(issueCmd)
+	registerIssueCreateFlags(issueCreateCmd)
+	registerIssueUpdateFlags(issueUpdateCmd)
+	registerIssueListFlags(issueListCmd)
 	issueSearchCmd.Flags().Int("page", 1, "Page number")
 	issueSearchCmd.Flags().Int("limit", 50, "Page size")
 	issueFilterRunCmd.Flags().Int("page", 1, "Page number")
@@ -821,6 +603,327 @@ func init() {
 	issueCommentAddCmd.Flags().String("body", "", "Comment text")
 	issueCommentListCmd.Flags().Int("page", 1, "Page number")
 	issueCommentListCmd.Flags().Int("limit", 20, "Page size")
+}
+
+func runIssueRoot(cmd *cobra.Command, args []string) error {
+	createChanged := cmd.Flags().Changed("create")
+	listChanged := cmd.Flags().Changed("list")
+	updateChanged := cmd.Flags().Changed("update")
+	actionCount := 0
+	for _, changed := range []bool{createChanged, listChanged, updateChanged} {
+		if changed {
+			actionCount++
+		}
+	}
+	if actionCount == 0 {
+		return cmd.Help()
+	}
+	if actionCount > 1 {
+		return fmt.Errorf("choose one root shortcut: --create/-c, --list/-l, or --update/-u")
+	}
+
+	if createChanged {
+		titleParts := []string{strings.TrimSpace(mustString(cmd, "create"))}
+		titleParts = append(titleParts, args...)
+		title := strings.TrimSpace(strings.Join(titleParts, " "))
+		if title == "" {
+			return fmt.Errorf("issue title is required")
+		}
+		return runIssueCreate(cmd, []string{title})
+	}
+	if listChanged {
+		if len(args) > 0 {
+			return fmt.Errorf("unexpected args for issue list shortcut: %s", strings.Join(args, " "))
+		}
+		return runIssueList(cmd, nil)
+	}
+
+	id := strings.TrimSpace(mustString(cmd, "update"))
+	if id == "" {
+		return fmt.Errorf("issue id is required for --update/-u")
+	}
+	if len(args) > 0 {
+		return fmt.Errorf("unexpected args for issue update shortcut: %s", strings.Join(args, " "))
+	}
+	return runIssueUpdate(cmd, []string{id})
+}
+
+func runIssueCreate(cmd *cobra.Command, args []string) error {
+	client, err := newClient()
+	if err != nil {
+		return err
+	}
+	cfg, err := cfgStore.Load()
+	if err != nil {
+		return err
+	}
+	interactive, _ := cmd.Flags().GetBool("interactive")
+	projectID, _ := cmd.Flags().GetString("project-id")
+	if strings.TrimSpace(projectID) == "" {
+		projectID = cfg.CurrentProjectID
+	}
+	description, _ := cmd.Flags().GetString("description")
+	issueType, _ := cmd.Flags().GetString("type")
+	priority, _ := cmd.Flags().GetString("priority")
+	parentID, _ := cmd.Flags().GetString("parent-id")
+	sprintID, _ := cmd.Flags().GetString("sprint-id")
+	assigneeID, _ := cmd.Flags().GetString("assignee-id")
+	labelsFlag, _ := cmd.Flags().GetString("labels")
+	smart := parseSmartIssueInput(args[0], cfg.UserID)
+	title := smart.Title
+	if title == "" {
+		title = strings.TrimSpace(args[0])
+	}
+	if strings.TrimSpace(issueType) == "" {
+		issueType = "task"
+	}
+	if strings.TrimSpace(priority) == "" {
+		priority = "medium"
+	}
+	if !cmd.Flags().Changed("priority") && smart.Priority != "" {
+		priority = smart.Priority
+	}
+	if !cmd.Flags().Changed("assignee-id") && smart.AssigneeID != "" {
+		assigneeID = smart.AssigneeID
+	}
+	if strings.TrimSpace(assigneeID) == "" {
+		assigneeID = strings.TrimSpace(cfg.UserID)
+	}
+	if strings.TrimSpace(description) == "" && strings.TrimSpace(smart.Description) != "" {
+		description = smart.Description
+	}
+	labels := parseCSV(labelsFlag)
+	if !cmd.Flags().Changed("labels") {
+		labels = append(labels, smart.Labels...)
+	}
+	labels = parseCSV(strings.Join(labels, ","))
+	if len(labels) == 0 {
+		if repoLabel := currentRepoLabel(); repoLabel != "" {
+			labels = []string{repoLabel}
+		}
+	}
+
+	if interactive {
+		if strings.TrimSpace(projectID) == "" {
+			projectID, err = utils.Prompt("Project ID")
+			if err != nil {
+				return err
+			}
+		}
+		description, err = utils.PromptOptional("Description", description)
+		if err != nil {
+			return err
+		}
+		issueType, err = utils.PromptOptional("Type (epic|story|task|bug)", issueType)
+		if err != nil {
+			return err
+		}
+		priority, err = utils.PromptOptional("Priority", priority)
+		if err != nil {
+			return err
+		}
+		parentID, err = utils.PromptOptional("Parent ID", parentID)
+		if err != nil {
+			return err
+		}
+		sprintID, err = utils.PromptOptional("Sprint ID", sprintID)
+		if err != nil {
+			return err
+		}
+		assigneeID, err = utils.PromptOptional("Assignee ID", assigneeID)
+		if err != nil {
+			return err
+		}
+		labelsFlag, err = utils.PromptOptional("Labels (comma-separated)", labelsFlag)
+		if err != nil {
+			return err
+		}
+	}
+
+	if strings.TrimSpace(projectID) == "" {
+		return fmt.Errorf("--project-id is required (or set context current_project_id)")
+	}
+	issue, err := client.CreateIssueSmart(api.CreateIssueInput{
+		Title:       title,
+		ProjectID:   projectID,
+		Description: description,
+		IssueType:   issueType,
+		Priority:    priority,
+		ParentID:    parentID,
+		SprintID:    sprintID,
+		AssigneeID:  assigneeID,
+		Labels:      labels,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Println(utils.SuccessText(fmt.Sprintf("Created issue %s: %s", issue.ID, issue.Title)))
+	return nil
+}
+
+func runIssueList(cmd *cobra.Command, args []string) error {
+	client, err := newClient()
+	if err != nil {
+		return err
+	}
+	filter := api.IssueListFilter{
+		ProjectID:  mustString(cmd, "project-id"),
+		Status:     mustString(cmd, "status"),
+		AssigneeID: mustString(cmd, "assignee-id"),
+		SprintID:   mustString(cmd, "sprint-id"),
+		Label:      mustString(cmd, "label"),
+		IssueType:  mustString(cmd, "type"),
+		Query:      mustString(cmd, "query"),
+		SortBy:     mustString(cmd, "sort-by"),
+		Order:      mustString(cmd, "order"),
+	}
+	page, _ := cmd.Flags().GetInt("page")
+	limit, _ := cmd.Flags().GetInt("limit")
+	filter.Page = page
+	filter.Limit = limit
+	issues, err := client.ListIssuesSmart(filter)
+	if err != nil {
+		return err
+	}
+	if len(issues) == 0 {
+		fmt.Println("No issues found")
+		return nil
+	}
+	rows := make([][]string, 0, len(issues))
+	for _, it := range issues {
+		rows = append(rows, []string{it.ID, utils.StatusColor(it.Status), it.Priority, it.IssueType, it.Title})
+	}
+	utils.PrintTable([]string{"ID", "STATUS", "PRIORITY", "TYPE", "TITLE"}, rows)
+	return nil
+}
+
+func runIssueUpdate(cmd *cobra.Command, args []string) error {
+	client, err := newClient()
+	if err != nil {
+		return err
+	}
+	id := args[0]
+	input := api.UpdateIssueInput{}
+	setCount := 0
+
+	if cmd.Flags().Changed("title") {
+		v, _ := cmd.Flags().GetString("title")
+		input.Title = &v
+		setCount++
+	}
+	if cmd.Flags().Changed("description") {
+		v, _ := cmd.Flags().GetString("description")
+		input.Description = &v
+		setCount++
+	}
+	if cmd.Flags().Changed("priority") {
+		v, _ := cmd.Flags().GetString("priority")
+		input.Priority = &v
+		setCount++
+	}
+	if cmd.Flags().Changed("type") {
+		v, _ := cmd.Flags().GetString("type")
+		input.IssueType = &v
+		setCount++
+	}
+	if cmd.Flags().Changed("status") {
+		v, _ := cmd.Flags().GetString("status")
+		input.Status = &v
+		setCount++
+	}
+	if cmd.Flags().Changed("parent-id") {
+		v, _ := cmd.Flags().GetString("parent-id")
+		input.ParentID = &v
+		setCount++
+	}
+	if cmd.Flags().Changed("sprint-id") {
+		v, _ := cmd.Flags().GetString("sprint-id")
+		input.SprintID = &v
+		setCount++
+	}
+	if cmd.Flags().Changed("assignee-id") {
+		v, _ := cmd.Flags().GetString("assignee-id")
+		input.AssigneeID = &v
+		setCount++
+	}
+	if cmd.Flags().Changed("labels") {
+		labels := parseCSV(mustString(cmd, "labels"))
+		input.Labels = &labels
+		setCount++
+	}
+	if setCount == 0 {
+		return fmt.Errorf("no changes provided")
+	}
+	issue, err := client.UpdateIssueSmart(id, input)
+	if err != nil {
+		return err
+	}
+	fmt.Println(utils.SuccessText(fmt.Sprintf("Updated issue %s (%s)", issue.ID, issue.Status)))
+	return nil
+}
+
+func registerIssueRootShortcutFlags(cmd *cobra.Command) {
+	cmd.Flags().StringP("create", "c", "", "Create an issue from the issues root")
+	cmd.Flags().BoolP("list", "l", false, "List issues from the issues root")
+	cmd.Flags().StringP("update", "u", "", "Update an issue by ID from the issues root")
+}
+
+func registerIssueRootOptionFlags(cmd *cobra.Command) {
+	cmd.Flags().String("project-id", "", "Project UUID (create) or project filter (list)")
+	cmd.Flags().String("description", "", "Issue description")
+	cmd.Flags().String("type", "", "Issue type or type filter")
+	cmd.Flags().String("priority", "", "Issue priority")
+	cmd.Flags().String("parent-id", "", "Parent issue UUID")
+	cmd.Flags().String("sprint-id", "", "Sprint UUID or sprint filter")
+	cmd.Flags().String("assignee-id", "", "Assignee user UUID or assignee filter")
+	cmd.Flags().String("labels", "", "Comma-separated labels for create/update")
+	cmd.Flags().String("label", "", "Filter by label")
+	cmd.Flags().Bool("interactive", false, "Launch interactive creation wizard")
+	cmd.Flags().String("title", "", "Issue title")
+	cmd.Flags().String("status", "", "Issue status or status filter")
+	cmd.Flags().String("query", "", "Filter text in issue titles/descriptions")
+	cmd.Flags().String("sort-by", "", "Sort by field (created_at|updated_at|priority|status)")
+	cmd.Flags().String("order", "", "Sort order (asc|desc)")
+	cmd.Flags().Int("page", 1, "Page number")
+	cmd.Flags().Int("limit", 50, "Page size")
+}
+
+func registerIssueCreateFlags(cmd *cobra.Command) {
+	cmd.Flags().String("project-id", "", "Project UUID (defaults to active context)")
+	cmd.Flags().String("description", "", "Issue description")
+	cmd.Flags().String("type", "task", "Issue type")
+	cmd.Flags().String("priority", "medium", "Issue priority")
+	cmd.Flags().String("parent-id", "", "Parent issue UUID")
+	cmd.Flags().String("sprint-id", "", "Sprint UUID")
+	cmd.Flags().String("assignee-id", "", "Assignee user UUID")
+	cmd.Flags().String("labels", "", "Comma-separated labels")
+	cmd.Flags().Bool("interactive", false, "Launch interactive creation wizard")
+}
+
+func registerIssueUpdateFlags(cmd *cobra.Command) {
+	cmd.Flags().String("title", "", "Issue title")
+	cmd.Flags().String("description", "", "Issue description")
+	cmd.Flags().String("priority", "", "Issue priority")
+	cmd.Flags().String("type", "", "Issue type")
+	cmd.Flags().String("status", "", "Issue status")
+	cmd.Flags().String("parent-id", "", "Parent issue UUID")
+	cmd.Flags().String("sprint-id", "", "Sprint UUID")
+	cmd.Flags().String("assignee-id", "", "Assignee user UUID")
+	cmd.Flags().String("labels", "", "Replace labels with comma-separated values")
+}
+
+func registerIssueListFlags(cmd *cobra.Command) {
+	cmd.Flags().String("project-id", "", "Filter by project UUID")
+	cmd.Flags().String("status", "", "Filter by status")
+	cmd.Flags().String("assignee-id", "", "Filter by assignee UUID")
+	cmd.Flags().String("sprint-id", "", "Filter by sprint UUID")
+	cmd.Flags().String("label", "", "Filter by label")
+	cmd.Flags().String("type", "", "Filter by issue type")
+	cmd.Flags().String("query", "", "Filter text in issue titles/descriptions")
+	cmd.Flags().String("sort-by", "", "Sort by field (created_at|updated_at|priority|status)")
+	cmd.Flags().String("order", "", "Sort order (asc|desc)")
+	cmd.Flags().Int("page", 1, "Page number")
+	cmd.Flags().Int("limit", 50, "Page size")
 }
 
 type smartIssueInput struct {

@@ -21,11 +21,82 @@ Default URLs:
 - backend health: `http://localhost:8080/health`
 - api base: `http://localhost:8080/api/v1`
 
+## CLI command system
+
+Binary and alias:
+
+```bash
+scrumx
+alias sx=scrumx
+```
+
+Structured mapping:
+
+| Long | Short |
+| --- | --- |
+| issues | i |
+| project | p |
+| sprint | s |
+| create | c |
+| list | l |
+| update | u |
+
+### Long commands
+
+```bash
+scrumx issues create "fix login bug p1 assign me #auth"
+scrumx issues list --status open
+scrumx project create CORE "Core platform"
+scrumx sprint start <sprint-id>
+```
+
+### Short commands
+
+```bash
+sx i c "fix login bug p1 assign me #auth"
+sx i l --status open
+sx p c CORE "Core platform"
+sx s s <sprint-id>
+```
+
+### Mixed commands
+
+```bash
+scrumx i -c "fix login bug p1 assign me #auth"
+scrumx i -l --status open
+scrumx p -c CORE "Core platform"
+scrumx s -s <sprint-id>
+```
+
+### Shell completion
+
+```bash
+scrumx completion bash > /etc/bash_completion.d/scrumx
+scrumx completion zsh > ~/.zsh/completions/_scrumx
+```
+
 To stop the stack:
 
 ```bash
 make down
 ```
+
+## ⚠️ Do immediately after merge (don't skip)
+
+Run the instant demo first:
+
+```bash
+sx demo
+```
+
+That one command is the full proof loop for demo purposes:
+
+1. create a demo project
+2. create starter work
+3. edit the issue so pending work is visible
+4. open the preloaded conflict
+5. resolve it with the recommended action
+6. confirm the final safe state everywhere
 
 ## Proven workflow to exercise first
 
@@ -36,6 +107,7 @@ CLI shortcut:
 ```bash
 cd ..
 go run ./scrumX/cli demo
+sx demo
 ```
 
 1. Open the issue workspace in the web app.
@@ -51,7 +123,7 @@ go run ./scrumX/cli demo
 ```bash
 go run ./scrumX/cli status
 go run ./scrumX/cli sync status
-go run ./scrumX/cli issue conflicts list
+go run ./scrumX/cli issues conflicts list
 ```
 
 ## Preview surfaces
