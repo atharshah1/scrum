@@ -16,6 +16,12 @@ const migrationSteps = [
   '5. Validate unmatched users and failed records'
 ];
 
+function getMigrationStepState(index: number, activeStep: number, importComplete: boolean) {
+  if (importComplete || index < activeStep) return 'done';
+  if (index === activeStep) return 'active';
+  return 'upcoming';
+}
+
 export default function SettingsPage() {
   const user = useAuthStore((s) => s.user);
   const canManage = canManageOrgSettings(user?.role);
@@ -43,7 +49,7 @@ export default function SettingsPage() {
           <div className="space-y-3">
             <div className="space-y-2 text-sm text-muted-foreground">
               {migrationSteps.map((step, index) => {
-                const state = importComplete ? 'done' : index < activeStep ? 'done' : index === activeStep ? 'active' : 'upcoming';
+                const state = getMigrationStepState(index, activeStep, importComplete);
                 return (
                   <div
                     key={step}

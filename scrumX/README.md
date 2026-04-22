@@ -49,7 +49,6 @@ go run ./scrumX/cli demo
 9. Use the CLI trust surface to inspect offline/sync/conflict state:
 
 ```bash
-cd .
 go run ./scrumX/cli status
 go run ./scrumX/cli sync status
 go run ./scrumX/cli issue conflicts list

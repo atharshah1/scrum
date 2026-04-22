@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -87,7 +89,11 @@ func init() {
 }
 
 func demoProjectKey() string {
-	return fmt.Sprintf("DEMO%d", time.Now().Unix()%100000)
+	var suffix [2]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return fmt.Sprintf("DEMO%d", time.Now().UnixNano()%1000000)
+	}
+	return "DEMO" + strings.ToUpper(hex.EncodeToString(suffix[:]))
 }
 
 func seedDemoConflict(cfg config.Config, project api.Project, issue api.Issue) error {

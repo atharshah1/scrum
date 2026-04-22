@@ -231,6 +231,7 @@ export function Topbar() {
 }
 
 function getShortcutLabel() {
+  if (typeof window === 'undefined') return 'Ctrl+K';
   const navigatorWithUAData = window.navigator as Navigator & { userAgentData?: { platform?: string } };
   const platform = navigatorWithUAData.userAgentData?.platform ?? window.navigator.platform ?? window.navigator.userAgent;
   return /mac|iphone|ipad|ipod/i.test(platform) ? '⌘K' : 'Ctrl+K';
