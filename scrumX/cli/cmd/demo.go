@@ -77,7 +77,7 @@ var demoCmd = &cobra.Command{
 		fmt.Println("Next:")
 		fmt.Println("  sx sync status")
 		fmt.Printf("  sx i cf show %s\n", conflictIssue.ID)
-		fmt.Printf("  open the web issue detail for %s and use “Resolve with recommended action”\n", conflictIssue.ID)
+		fmt.Printf("  open the web issue detail for %s and use the recommended action button\n", conflictIssue.ID)
 		return nil
 	},
 }
