@@ -48,15 +48,15 @@ export function TrustBar() {
             <Button size="sm" variant="outline">Issue workspace</Button>
           </Link>
           <Link href="/dashboard">
-            <Button size="sm" variant="outline">Run 60-second demo</Button>
+            <Button size="sm" variant="outline">Start instant demo</Button>
           </Link>
           {firstConflictIssueId ? (
             <Link href={`/issues/${firstConflictIssueId}`}>
-              <Button size="sm">Resolve safely now</Button>
+              <Button size="sm">Resolve with recommended action</Button>
             </Link>
           ) : (
-            <Link href="/dashboard">
-              <Button size="sm" variant="outline">Review trust state</Button>
+            <Link href="/projects?demo=instant">
+              <Button size="sm">Open demo project</Button>
             </Link>
           )}
         </div>

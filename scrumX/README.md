@@ -31,14 +31,21 @@ make down
 
 Use one vertical slice before exploring preview surfaces. This is the entire product promise:
 
+CLI shortcut:
+
+```bash
+cd ..
+go run ./scrumX/cli demo
+```
+
 1. Open the issue workspace in the web app.
-2. Select or enter a project id.
-3. Create an issue.
-4. Edit the issue immediately so the trust state shows safe pending changes.
-5. Go offline or force the CLI into offline capture, then confirm scrumX keeps zero data loss visible.
-6. Re-open the issue in another surface, trigger a concurrent change, and let scrumX catch the conflict before overwrite.
-7. Use the conflict review card to keep local, keep remote, or merge.
-8. Confirm the final state is safe and reflected everywhere.
+2. Start the instant demo project or run `sx demo`.
+3. Create an issue or open the starter issue.
+4. Edit the issue immediately so the trust state shows pending work.
+5. Go offline or force the CLI into offline capture, then confirm scrumX keeps your work protected.
+6. Open the preloaded conflict issue or trigger a concurrent change from another surface.
+7. Use **Resolve with recommended action** for the fastest safe path.
+8. Confirm the final state is reflected everywhere.
 9. Use the CLI trust surface to inspect offline/sync/conflict state:
 
 ```bash

@@ -30,6 +30,9 @@ export type Project = {
   name: string;
   key?: string;
   description?: string;
+  role?: string;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type Issue = {

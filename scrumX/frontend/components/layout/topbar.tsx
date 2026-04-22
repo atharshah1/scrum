@@ -205,18 +205,18 @@ export function Topbar() {
       <div className="flex items-center gap-2 text-sm">
         <Badge className={online ? 'border-emerald-200 text-emerald-700' : 'border-amber-200 text-amber-700'}>
           {online ? <Wifi className="mr-1 h-3.5 w-3.5" /> : <WifiOff className="mr-1 h-3.5 w-3.5" />}
-          {online ? 'Safe sync live' : 'Offline safe mode'}
+          {online ? 'Synced' : 'Offline'}
         </Badge>
         <Badge className={pendingActions > 0 ? 'border-blue-200 text-blue-700' : 'border-slate-200 text-slate-700'}>
           <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-          {pendingActions > 0 ? `${pendingActions} safe pending change${pendingActions === 1 ? '' : 's'}` : 'Zero data loss active'}
+          {pendingActions > 0 ? `${pendingActions} pending change${pendingActions === 1 ? '' : 's'}` : 'Protected'}
         </Badge>
         {conflictIssueIds.length > 0 ? (
           <Button size="sm" onClick={() => router.push(`/issues/${conflictIssueIds[0]}`)}>
             ⚠ Resolve {conflictIssueIds.length} conflict{conflictIssueIds.length === 1 ? '' : 's'}
           </Button>
         ) : (
-          <Badge className="border-blue-200 text-blue-700">Conflict-safe edits</Badge>
+          <Badge className="border-slate-200 text-slate-700">No conflicts</Badge>
         )}
         <Button variant="outline" size="sm" onClick={toggleTheme} aria-label="Toggle theme">
           {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}

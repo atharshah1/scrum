@@ -23,11 +23,10 @@ export function Sidebar() {
   return (
     <aside className="w-64 border-r bg-background p-3">
       <div className="mb-1 px-2 text-lg font-semibold">scrumX</div>
-      <p className="mb-2 px-2 text-xs text-muted-foreground">Zero data loss with safe offline work, safe sync, and safe conflict resolution.</p>
+      <p className="mb-2 px-2 text-xs text-muted-foreground">Work from the issue slice first.</p>
       <div className="mb-4 space-y-1 px-2 text-[11px] text-muted-foreground">
-        <div>Trust state is always visible.</div>
-        <div>{conflictIssueIds.length > 0 ? `⚠ ${conflictIssueIds.length} conflict${conflictIssueIds.length === 1 ? '' : 's'} need review` : '✔ No open conflicts'}</div>
-        <div>{pendingActions > 0 ? `⟳ ${pendingActions} pending web change${pendingActions === 1 ? '' : 's'}` : '✔ No pending web changes'}</div>
+        <div>{conflictIssueIds.length > 0 ? `⚠ ${conflictIssueIds.length} conflict${conflictIssueIds.length === 1 ? '' : 's'} need review` : '✔ No conflicts'}</div>
+        <div>{pendingActions > 0 ? `⟳ ${pendingActions} pending change${pendingActions === 1 ? '' : 's'}` : '✔ No pending changes'}</div>
       </div>
       <nav className="space-y-1">
         {items.map((item) => (

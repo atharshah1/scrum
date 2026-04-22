@@ -19,7 +19,10 @@ var rootCmd = &cobra.Command{
 	Aliases: []string{"sx"},
 	Short:   "Developer-first task CLI with zero-data-loss trust state",
 	Long: `scrumX is built for fast task work with zero data loss, safe offline capture,
-	visible sync trust, and safe conflict resolution.
+visible sync trust, and safe conflict resolution.
+
+Fastest onboarding flow:
+  sx demo
 
 Core daily flow:
   sx i c "fix login bug p1 assign me #auth"
@@ -27,7 +30,7 @@ Core daily flow:
   sx sync st
   sx i cf l
   sx i cf r <issue-id>`,
-	Example: "  sx i c \"fix login bug p1 assign me #auth\"\n  sx i l --status open\n  sx sync st\n  sx i cf l\n  sx i cf r <issue-id>",
+	Example: "  sx demo\n  sx i c \"fix login bug p1 assign me #auth\"\n  sx i l --status open\n  sx sync st\n  sx i cf l\n  sx i cf r <issue-id>",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		cfgStore = config.NewStore("")
 		cfg, err := cfgStore.Load()

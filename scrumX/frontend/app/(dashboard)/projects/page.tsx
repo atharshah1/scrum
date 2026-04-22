@@ -18,7 +18,23 @@ import { isAdminRole } from '@/lib/permissions';
 import { qk } from '@/lib/query-keys';
 import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
-import type { Issue } from '@/types';
+import type { Issue, Project } from '@/types';
+
+const demoIssueTemplates = [
+  {
+    title: 'Demo: create or edit work fast',
+    description: 'Use this issue first to prove the create → edit loop in the workspace.'
+  },
+  {
+    title: 'Demo: offline-safe draft',
+    description: 'This issue is here to show the pending/offline-safe story before you sync.'
+  },
+  {
+    title: 'Demo: resolve the preloaded conflict',
+    description: 'Open this issue to review the recommended conflict resolution path.',
+    labels: ['demo-conflict']
+  }
+] satisfies Array<{ title: string; description: string; labels?: string[] }>;
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -30,18 +46,25 @@ export default function ProjectsPage() {
   const conflictIssueIds = useAppStore((s) => s.conflictIssueIds);
   const beginPendingAction = useAppStore((s) => s.beginPendingAction);
   const finishPendingAction = useAppStore((s) => s.finishPendingAction);
+  const registerConflictIssue = useAppStore((s) => s.registerConflictIssue);
   const clearConflictIssue = useAppStore((s) => s.clearConflictIssue);
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const isAdmin = isAdminRole(user?.role);
   const [activeIndex, setActiveIndex] = useState(0);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const autoDemoStartedRef = useRef(false);
   const createIssueForm = useFormFields(
     { title: '', description: '' },
     {
       title: [required('Issue title')]
     }
   );
+
+  const projectsQuery = useQuery({
+    queryKey: qk.projects,
+    queryFn: () => apiRequest<Project[]>('/projects/')
+  });
 
   const filterKey = JSON.stringify({ selectedProjectId, filters, jqlSearch });
   const issuesQuery = useQuery({
@@ -95,7 +118,66 @@ export default function ProjectsPage() {
     }
   });
 
+  const instantDemo = useMutation({
+    mutationFn: async () => {
+      const keySuffix = Date.now().toString().slice(-4);
+      const project = await apiRequest<Project>('/projects/', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: 'Instant demo project',
+          key: `DEMO${keySuffix}`
+        })
+      });
+      const createdIssues = [];
+      for (const template of demoIssueTemplates) {
+        const createdIssue = await apiRequest<Issue>('/issues/', {
+          method: 'POST',
+          body: JSON.stringify({
+            project_id: project.id,
+            title: template.title,
+            description: template.description,
+            labels: template.labels ?? []
+          })
+        });
+        createdIssues.push(createdIssue);
+      }
+      return { project, createdIssues };
+    },
+    onMutate: async () => {
+      beginPendingAction();
+    },
+    onSuccess: ({ project, createdIssues }) => {
+      const conflictIssue = createdIssues.find((issue) => issue.labels?.includes('demo-conflict'));
+      queryClient.setQueryData<Project[]>(qk.projects, (prev) => [project, ...(prev ?? [])]);
+      setSelectedProject(project.id);
+      if (conflictIssue) {
+        registerConflictIssue(conflictIssue.id);
+      }
+      queryClient.invalidateQueries({ queryKey: qk.projects, exact: true });
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'issues' });
+      toast({
+        title: 'Instant demo ready',
+        description: 'Your demo project now includes a starter issue, an offline-safe draft, and a preloaded conflict.'
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Instant demo setup failed',
+        description: error instanceof Error ? error.message : 'Unable to prepare the demo project.',
+        variant: 'error'
+      });
+    },
+    onSettled: () => {
+      finishPendingAction();
+    }
+  });
+
   const issues = useMemo(() => issuesQuery.data ?? [], [issuesQuery.data]);
+  const projects = useMemo(() => projectsQuery.data ?? [], [projectsQuery.data]);
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === selectedProjectId) ?? null,
+    [projects, selectedProjectId]
+  );
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -130,8 +212,19 @@ export default function ProjectsPage() {
       }
     };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+      return () => window.removeEventListener('keydown', onKeyDown);
   }, [activeIndex, issues, router]);
+
+  useEffect(() => {
+    if (projectsQuery.isPending || selectedProjectId) return;
+    if (projects.length > 0) {
+      setSelectedProject(projects[0].id);
+      return;
+    }
+    if (!isAdmin || autoDemoStartedRef.current) return;
+    autoDemoStartedRef.current = true;
+    instantDemo.mutate();
+  }, [instantDemo, isAdmin, projects, projectsQuery.isPending, selectedProjectId, setSelectedProject]);
 
   return (
     <div className="space-y-4">
@@ -153,19 +246,28 @@ export default function ProjectsPage() {
       <Card className="border-blue-200 bg-blue-50/40">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-blue-950">
           <div>
-            <div className="font-medium">60-second proof loop</div>
-            <p className="text-blue-900/80">Create an issue, make a fast edit, force a conflict, resolve it, and watch scrumX keep zero data loss visible the whole time.</p>
+            <div className="font-medium">Instant demo project</div>
+            <p className="text-blue-900/80">Start with one ready project, one starter issue, one offline-safe draft, and one conflict that is already waiting for review.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => titleInputRef.current?.focus()}>Start with create</Button>
-            <Link href="/dashboard"><Button size="sm">Open guided demo</Button></Link>
+            <Button size="sm" onClick={() => (projects.length > 0 ? setSelectedProject(projects[0].id) : instantDemo.mutate())} disabled={instantDemo.isPending || (!isAdmin && projects.length === 0)}>
+              {projects.length > 0 ? 'Start instant demo' : instantDemo.isPending ? 'Preparing demo…' : 'Create instant demo'}
+            </Button>
+            <Link href="/dashboard"><Button size="sm" variant="outline">Open guided steps</Button></Link>
           </div>
         </CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle>Filters</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Project & filters</CardTitle></CardHeader>
         <CardContent className="grid gap-2 md:grid-cols-4">
-          <Input placeholder="Project ID" value={selectedProjectId ?? ''} onChange={(e) => setSelectedProject(e.target.value || null)} />
+          <Select value={selectedProjectId ?? ''} onChange={(e) => setSelectedProject(e.target.value || null)}>
+            <option value="">{projectsQuery.isPending ? 'Loading projects…' : 'Select project'}</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}{project.key ? ` (${project.key})` : ''}
+              </option>
+            ))}
+          </Select>
           <Select value={filters.status ?? ''} onChange={(e) => setIssueFilter('status', e.target.value)}>
             <option value="">All statuses</option>
             <option value="todo">To do</option>
@@ -175,6 +277,11 @@ export default function ProjectsPage() {
           <Input placeholder="Label" value={filters.label ?? ''} onChange={(e) => setIssueFilter('label', e.target.value)} />
           <Input placeholder="Assignee ID" value={filters.assignee_id ?? ''} onChange={(e) => setIssueFilter('assignee_id', e.target.value)} />
         </CardContent>
+        {!projectsQuery.isPending && selectedProject ? (
+          <p className="px-6 pb-4 text-xs text-muted-foreground">
+            Working in <span className="font-medium">{selectedProject.name}</span>. The instant demo keeps the conflict path one click away.
+          </p>
+        ) : null}
         {jqlSearch.trim() ? (
           <p className="px-6 pb-4 text-xs text-muted-foreground">
             Task filter is active from the top bar: <span className="font-medium">{jqlSearch}</span>
@@ -231,8 +338,12 @@ export default function ProjectsPage() {
           {!issuesQuery.isPending && !issues.length ? (
             <EmptyState
               title="No issues found"
-              description="Start by selecting a project and creating your first issue."
-              action={<Button onClick={() => setSelectedProject('default-project')}>Use sample project</Button>}
+              description="Start with the instant demo project so you can create, review, and resolve without entering a project ID."
+              action={
+                <Button onClick={() => (projects.length > 0 ? setSelectedProject(projects[0].id) : instantDemo.mutate())} disabled={instantDemo.isPending || (!isAdmin && projects.length === 0)}>
+                  {projects.length > 0 ? 'Open instant demo' : 'Create instant demo'}
+                </Button>
+              }
               hint="Tip: after creating an issue, use J/K and Enter for keyboard triage."
             />
           ) : null}

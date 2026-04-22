@@ -52,6 +52,15 @@ type Issue struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type Project struct {
+	ID        string    `json:"id"`
+	Key       string    `json:"key"`
+	Name      string    `json:"name"`
+	Role      string    `json:"role,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+}
+
 type IssueListFilter struct {
 	ProjectID    string
 	Status       string
@@ -77,6 +86,11 @@ type CreateIssueInput struct {
 	SprintID    string   `json:"sprint_id,omitempty"`
 	AssigneeID  string   `json:"assignee_id,omitempty"`
 	Labels      []string `json:"labels,omitempty"`
+}
+
+type CreateProjectInput struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
 }
 
 type UpdateIssueInput struct {
@@ -326,6 +340,22 @@ func (c *Client) CreateIssue(input CreateIssueInput) (Issue, error) {
 	if err == nil {
 		c.invalidateIssueCache()
 	}
+	return out.Data, err
+}
+
+func (c *Client) CreateProject(input CreateProjectInput) (Project, error) {
+	body := map[string]any{
+		"key":  strings.TrimSpace(input.Key),
+		"name": strings.TrimSpace(input.Name),
+	}
+	var out envelope[Project]
+	_, err := c.authedRequest(http.MethodPost, "/projects", body, &out)
+	return out.Data, err
+}
+
+func (c *Client) ListProjects() ([]Project, error) {
+	var out envelope[[]Project]
+	_, err := c.authedRequest(http.MethodGet, "/projects", nil, &out)
 	return out.Data, err
 }
 

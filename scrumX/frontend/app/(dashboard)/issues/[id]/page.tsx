@@ -44,6 +44,8 @@ export default function IssueDetailPage() {
   const clearConflictIssue = useAppStore((state) => state.clearConflictIssue);
   const [nextStatus, setNextStatus] = useState('');
   const [conflictPreview, setConflictPreview] = useState<ConflictPreview | null>(null);
+  const [resolutionIntent, setResolutionIntent] = useState<'local' | 'remote' | 'merge' | null>(null);
+  const [resolutionNotice, setResolutionNotice] = useState<{ title: string; description: string } | null>(null);
 
   const issueQuery = useQuery({
     queryKey: qk.issue(issueId),
@@ -97,8 +99,13 @@ export default function IssueDetailPage() {
     onSuccess: () => {
       setConflictPreview(null);
       clearConflictIssue(issueId);
+      if (resolutionIntent) {
+        setResolutionNotice(getResolutionNotice(resolutionIntent));
+        setResolutionIntent(null);
+      }
     },
     onError: (error, payload, context) => {
+      setResolutionIntent(null);
       if (context?.previousIssue) {
         queryClient.setQueryData(qk.issue(issueId), context.previousIssue);
       }
@@ -144,6 +151,10 @@ export default function IssueDetailPage() {
       setConflictPreview(null);
       setNextStatus('');
       clearConflictIssue(issueId);
+      if (resolutionIntent) {
+        setResolutionNotice(getResolutionNotice(resolutionIntent));
+        setResolutionIntent(null);
+      }
       queryClient.setQueryData<Board | undefined>(qk.board(issue?.project_id ?? ''), (board) => {
         if (!board) return board;
         return {
@@ -156,6 +167,7 @@ export default function IssueDetailPage() {
       });
     },
     onError: (error, status, context) => {
+      setResolutionIntent(null);
       if (context?.previousIssue) {
         queryClient.setQueryData(qk.issue(issueId), context.previousIssue);
       }
@@ -196,37 +208,48 @@ export default function IssueDetailPage() {
     );
   }
 
+  const hasWorkspaceConflict = conflictIssueIds.includes(issueId);
+  const effectiveConflictPreview = conflictPreview ?? buildDemoConflictPreview(issue, hasWorkspaceConflict);
+
   const resolveConflict = (resolution: 'local' | 'remote' | 'merge') => {
-    if (!conflictPreview || !issue) return;
+    if (!effectiveConflictPreview || !issue) return;
     if (resolution === 'remote') {
       setConflictPreview(null);
       clearConflictIssue(issueId);
+      setResolutionIntent(null);
+      setResolutionNotice(getResolutionNotice('remote'));
       queryClient.invalidateQueries({ queryKey: qk.issue(issueId), exact: true });
       return;
     }
+    setResolutionIntent(resolution);
     if (resolution === 'local') {
-      if (conflictPreview.kind === 'transition') {
-        transitionIssue.mutate(String(conflictPreview.payload.status ?? conflictPreview.local.status));
+      if (effectiveConflictPreview.kind === 'transition') {
+        transitionIssue.mutate(String(effectiveConflictPreview.payload.status ?? effectiveConflictPreview.local.status));
         return;
       }
-      updateIssue.mutate(conflictPreview.payload);
+      updateIssue.mutate(effectiveConflictPreview.payload);
       return;
     }
-    updateIssue.mutate(mergeConflictPayload(conflictPreview, issue));
+    updateIssue.mutate(mergeConflictPayload(effectiveConflictPreview, issue));
   };
 
-  const conflictSuggestion = conflictPreview && issue ? suggestConflictResolution(conflictPreview, issue) : null;
-  const hasWorkspaceConflict = conflictIssueIds.includes(issueId);
+  const conflictSuggestion = effectiveConflictPreview && issue ? suggestConflictResolution(effectiveConflictPreview, issue) : null;
 
   return (
     <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
       <div className="space-y-4">
-        {hasWorkspaceConflict && !conflictPreview ? (
+        {hasWorkspaceConflict && !effectiveConflictPreview ? (
           <Card className="border-amber-200 bg-amber-50/60">
             <CardHeader><CardTitle>⚠ Conflict detected</CardTitle></CardHeader>
             <CardContent className="text-sm text-amber-950/80">
-              Zero data loss protected your edit. A quick action from another surface hit an optimistic-lock conflict, so scrumX stopped the overwrite and brought you here to resolve safely.
+              Your work is still protected. scrumX stopped the overwrite and brought you here to resolve safely.
             </CardContent>
+          </Card>
+        ) : null}
+        {resolutionNotice ? (
+          <Card className="border-emerald-200 bg-emerald-50/70">
+            <CardHeader><CardTitle>{resolutionNotice.title}</CardTitle></CardHeader>
+            <CardContent className="text-sm text-emerald-950/80">{resolutionNotice.description}</CardContent>
           </Card>
         ) : null}
         <Card>
@@ -284,7 +307,7 @@ export default function IssueDetailPage() {
 
             <div className="flex items-center gap-2">
               <Badge>{issue?.status ?? 'unknown'}</Badge>
-              <Badge className="border-emerald-200 text-emerald-700">Zero-data-loss editing</Badge>
+              <Badge className="border-emerald-200 text-emerald-700">Protected editing</Badge>
               {features.INSIGHTS ? <Badge>⏱ Cycle time: {(cycleTimeQuery.data?.avg_days ?? 0).toFixed(1)} days</Badge> : null}
             </div>
 
@@ -320,13 +343,13 @@ export default function IssueDetailPage() {
           </CardContent>
         </Card>
 
-        {conflictPreview && issue && conflictSuggestion ? (
+        {effectiveConflictPreview && issue && conflictSuggestion ? (
           <Card className="border-amber-200 bg-amber-50/60">
               <CardHeader className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge className="border-amber-200 bg-amber-100 text-amber-900">⚠ Conflict detected</Badge>
-                  <Badge className="border-blue-200 bg-blue-100 text-blue-900">Suggested: {conflictSuggestion.label}</Badge>
-                  <Badge className="border-emerald-200 bg-emerald-100 text-emerald-900">Zero data loss protected this edit</Badge>
+                  <Badge className="border-blue-200 bg-blue-100 text-blue-900">Recommended: {conflictSuggestion.label}</Badge>
+                  <Badge className="border-emerald-200 bg-emerald-100 text-emerald-900">Your work is safe</Badge>
                 </div>
                 <CardTitle>Conflict review</CardTitle>
               </CardHeader>
@@ -346,20 +369,20 @@ export default function IssueDetailPage() {
                   </div>
                 </div>
               ) : null}
-              <p className="text-muted-foreground">Compare your local change with the latest remote value, then keep local, keep remote, or merge. The recommended action is designed to feel instant.</p>
+              <p className="text-muted-foreground">Use the recommended action if you want the fastest safe path. Other options stay available below.</p>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-md border p-3">
                   <div className="mb-2 text-xs font-medium text-muted-foreground">LOCAL CHANGE</div>
-                  {conflictPreview.changedFields.map((field) => (
+                  {effectiveConflictPreview.changedFields.map((field) => (
                     <div key={`local-${field}`} className="mb-2">
                       <div className="text-xs uppercase text-muted-foreground">{field}</div>
-                      <div>{formatConflictValue(conflictPreview.local[field])}</div>
+                      <div>{formatConflictValue(effectiveConflictPreview.local[field])}</div>
                     </div>
                   ))}
                 </div>
                 <div className="rounded-md border p-3">
                   <div className="mb-2 text-xs font-medium text-muted-foreground">REMOTE CHANGE</div>
-                  {conflictPreview.changedFields.map((field) => (
+                  {effectiveConflictPreview.changedFields.map((field) => (
                     <div key={`remote-${field}`} className="mb-2">
                       <div className="text-xs uppercase text-muted-foreground">{field}</div>
                       <div>{formatConflictValue(issue[field])}</div>
@@ -367,11 +390,22 @@ export default function IssueDetailPage() {
                   ))}
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => resolveConflict(conflictSuggestion.action)}>{conflictSuggestion.cta}</Button>
-                <Button variant="outline" onClick={() => resolveConflict('local')}>Keep local</Button>
-                <Button variant="outline" onClick={() => resolveConflict('remote')}>Keep remote</Button>
-                <Button variant="outline" onClick={() => resolveConflict('merge')}>Merge manually</Button>
+              <div className="space-y-3">
+                <div className="rounded-md border border-emerald-200 bg-emerald-50/80 p-3">
+                  <div className="text-xs font-medium uppercase tracking-wide text-emerald-900/80">Recommended action</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-3">
+                    <Button size="lg" onClick={() => resolveConflict(conflictSuggestion.action)}>Resolve with recommended action</Button>
+                    <p className="text-sm text-emerald-950/80">{conflictSuggestion.cta}</p>
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Other options</div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={() => resolveConflict('local')}>Keep local</Button>
+                    <Button variant="outline" onClick={() => resolveConflict('remote')}>Keep remote</Button>
+                    <Button variant="outline" onClick={() => resolveConflict('merge')}>Merge manually</Button>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -463,7 +497,7 @@ function suggestConflictResolution(preview: ConflictPreview, remoteIssue: Issue)
     return {
       action: 'local' as const,
       label: 'Keep local transition',
-      cta: 'Apply suggested local transition',
+      cta: 'Retry the local transition against the latest remote version.',
       reason: 'Workflow moves are usually intentional. Retry your transition against the latest remote version first.',
       preview: [] as Array<{ field: keyof Issue; value: unknown }>
     };
@@ -472,7 +506,7 @@ function suggestConflictResolution(preview: ConflictPreview, remoteIssue: Issue)
     return {
       action: 'merge' as const,
       label: 'Merge both sides',
-      cta: 'Apply suggested merge',
+      cta: 'Preserve both sides without forcing a winner.',
       reason: 'This keeps your local intent visible while preserving the latest remote values instead of forcing a winner.',
       preview: mergeFields.map((field) => ({ field, value: mergePreview[field] }))
     };
@@ -480,10 +514,49 @@ function suggestConflictResolution(preview: ConflictPreview, remoteIssue: Issue)
   return {
     action: 'local' as const,
     label: 'Keep local update',
-    cta: 'Apply suggested local update',
+    cta: 'Keep the newest local intent and retry it safely.',
     reason: 'Retry the local field update against the latest remote record to preserve the most recent intent.',
     preview: [] as Array<{ field: keyof Issue; value: unknown }>
   };
+}
+
+function buildDemoConflictPreview(issue: Issue | undefined, hasWorkspaceConflict: boolean): ConflictPreview | null {
+  if (!issue || !hasWorkspaceConflict || !issue.labels?.includes('demo-conflict')) {
+    return null;
+  }
+  return {
+    kind: 'update',
+    payload: {
+      title: `${issue.title} (local edit)`,
+      description: [issue.description, 'Local note: keep this edit if you want the fastest safe resolution.'].filter(Boolean).join('\n\n')
+    },
+    local: {
+      ...issue,
+      title: `${issue.title} (local edit)`,
+      description: [issue.description, 'Local note: keep this edit if you want the fastest safe resolution.'].filter(Boolean).join('\n\n')
+    },
+    changedFields: ['title', 'description']
+  };
+}
+
+function getResolutionNotice(resolution: 'local' | 'remote' | 'merge') {
+  switch (resolution) {
+    case 'merge':
+      return {
+        title: 'Resolved safely with the recommended action',
+        description: 'Both sides were preserved and the final state is ready to sync everywhere.'
+      };
+    case 'remote':
+      return {
+        title: 'Resolved safely with the remote version',
+        description: 'The latest remote state stays in place and your workspace is clear again.'
+      };
+    default:
+      return {
+        title: 'Resolved safely with your local change',
+        description: 'Your newest local intent is now the trusted final version.'
+      };
+  }
 }
 
 // Keep this aligned with the Issue fields that can appear in conflict payloads.
